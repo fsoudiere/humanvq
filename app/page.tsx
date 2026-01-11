@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Bot,
   GraduationCap,
   Footprints,
   Calendar,
+  LogOut,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,23 +21,95 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { createClient } from "@/utils/supabase/client"
 
 type AppState = "intake" | "loading" | "results"
 
 export default function Home() {
   const [state, setState] = useState<AppState>("intake")
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [authMode, setAuthMode] = useState<"signup" | "signin">("signup")
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [authLoading, setAuthLoading] = useState(false)
+  const [authData, setAuthData] = useState({
+    email: "",
+    password: "",
+  })
   const [formData, setFormData] = useState({
     name: "",
     url: "",
     type: "",
   })
 
-  const handleConnect = () => {
-    setState("loading")
-    setTimeout(() => {
-      setState("results")
-    }, 2000)
+  useEffect(() => {
+    const checkSession = async () => {
+      const supabase = createClient()
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (session) {
+        setState("results")
+      }
+    }
+    checkSession()
+  }, [])
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAuthError(null)
+    setAuthLoading(true)
+
+    try {
+      const supabase = createClient()
+
+      if (authMode === "signup") {
+        // Sign up new user
+        const { data, error } = await supabase.auth.signUp({
+          email: authData.email,
+          password: authData.password,
+        })
+
+        if (error) {
+          setAuthError(error.message)
+          setAuthLoading(false)
+          return
+        }
+
+        if (data.user) {
+          // User created successfully, show loading and then results
+          setState("loading")
+          setTimeout(() => {
+            setState("results")
+            setAuthLoading(false)
+          }, 2000)
+        }
+      } else {
+        // Sign in existing user
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: authData.email,
+          password: authData.password,
+        })
+
+        if (error) {
+          setAuthError(error.message)
+          setAuthLoading(false)
+          return
+        }
+
+        if (data.session) {
+          // User signed in successfully, show loading and then results
+          setState("loading")
+          setTimeout(() => {
+            setState("results")
+            setAuthLoading(false)
+          }, 2000)
+        }
+      }
+    } catch (error) {
+      console.error("Error authenticating:", error)
+      setAuthError("An unexpected error occurred. Please try again.")
+      setAuthLoading(false)
+    }
   }
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -52,6 +125,23 @@ export default function Home() {
     alert("Check-in reminder set!")
   }
 
+  const handleLogout = async () => {
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.auth.signOut()
+      if (error) {
+        console.error("Error signing out:", error)
+      } else {
+        // Reset state and redirect to intake
+        setState("intake")
+        setAuthData({ email: "", password: "" })
+        setAuthError(null)
+      }
+    } catch (error) {
+      console.error("Error signing out:", error)
+    }
+  }
+
   if (state === "intake") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
@@ -63,79 +153,143 @@ export default function Home() {
             Discover your Human+ score and the AI tools that specifically
             support your unique profile.
           </p>
-          <div className="flex flex-col items-center gap-4 pt-4">
-            <Button
-              onClick={handleConnect}
-              size="lg"
-              className="h-14 px-8 text-base font-medium"
-            >
-              Connect LinkedIn
-            </Button>
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <button className="text-sm text-zinc-500 underline-offset-4 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200">
-                  Suggest an App/Course
-                </button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Suggest an App/Course</DialogTitle>
-                  <DialogDescription>
-                    Share a resource that could help professionals in the AI age.
-                  </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleFormSubmit} className="space-y-4">
+          <div className="w-full max-w-md pt-4">
+            <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+              <CardHeader>
+                <CardTitle className="text-xl">
+                  {authMode === "signup" ? "Create Account" : "Sign In"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleAuth} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="name">Name</Label>
+                    <Label htmlFor="email">Email</Label>
                     <Input
-                      id="name"
-                      value={formData.name}
+                      id="email"
+                      type="email"
+                      value={authData.email}
                       onChange={(e) =>
-                        setFormData({ ...formData, name: e.target.value })
+                        setAuthData({ ...authData, email: e.target.value })
                       }
-                      placeholder="Resource name"
+                      placeholder="you@example.com"
                       required
+                      disabled={authLoading}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="url">URL</Label>
+                    <Label htmlFor="password">Password</Label>
                     <Input
-                      id="url"
-                      type="url"
-                      value={formData.url}
+                      id="password"
+                      type="password"
+                      value={authData.password}
                       onChange={(e) =>
-                        setFormData({ ...formData, url: e.target.value })
+                        setAuthData({ ...authData, password: e.target.value })
                       }
-                      placeholder="https://example.com"
+                      placeholder="••••••••"
                       required
+                      disabled={authLoading}
+                      minLength={6}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="type">Type</Label>
-                    <Input
-                      id="type"
-                      value={formData.type}
-                      onChange={(e) =>
-                        setFormData({ ...formData, type: e.target.value })
-                      }
-                      placeholder="App, Course, Tool, etc."
-                      required
-                    />
-                  </div>
-                  <div className="flex justify-end gap-2 pt-4">
-                    <Button
+                  {authError && (
+                    <div className="rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/20 dark:text-red-400">
+                      {authError}
+                    </div>
+                  )}
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="w-full"
+                    disabled={authLoading}
+                  >
+                    {authLoading
+                      ? "Processing..."
+                      : authMode === "signup"
+                        ? "Create Account"
+                        : "Sign In"}
+                  </Button>
+                  <div className="flex items-center justify-center gap-2 pt-2">
+                    <button
                       type="button"
-                      variant="outline"
-                      onClick={() => setDialogOpen(false)}
+                      onClick={() => {
+                        setAuthMode(authMode === "signup" ? "signin" : "signup")
+                        setAuthError(null)
+                      }}
+                      className="text-sm text-zinc-500 underline-offset-4 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
                     >
-                      Cancel
-                    </Button>
-                    <Button type="submit">Submit</Button>
+                      {authMode === "signup"
+                        ? "Already have an account? Sign in"
+                        : "Don't have an account? Sign up"}
+                    </button>
                   </div>
                 </form>
-              </DialogContent>
-            </Dialog>
+              </CardContent>
+            </Card>
           </div>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <button className="text-sm text-zinc-500 underline-offset-4 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200">
+                Suggest an App/Course
+              </button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Suggest an App/Course</DialogTitle>
+                <DialogDescription>
+                  Share a resource that could help professionals in the AI age.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleFormSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Name</Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({ ...formData, name: e.target.value })
+                    }
+                    placeholder="Resource name"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="url">URL</Label>
+                  <Input
+                    id="url"
+                    type="url"
+                    value={formData.url}
+                    onChange={(e) =>
+                      setFormData({ ...formData, url: e.target.value })
+                    }
+                    placeholder="https://example.com"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="type">Type</Label>
+                  <Input
+                    id="type"
+                    value={formData.type}
+                    onChange={(e) =>
+                      setFormData({ ...formData, type: e.target.value })
+                    }
+                    placeholder="App, Course, Tool, etc."
+                    required
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit">Submit</Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
         </main>
       </div>
     )
@@ -161,6 +315,18 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black">
       <main className="mx-auto max-w-6xl px-6 py-16">
+        {/* Logout Button */}
+        <div className="mb-8 flex justify-end">
+          <Button
+            onClick={handleLogout}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <LogOut className="h-4 w-4" />
+            Logout
+          </Button>
+        </div>
         {/* The Efficiency Audit */}
         <section className="mb-20">
           <h2 className="mb-8 text-3xl font-light tracking-tight text-black dark:text-zinc-50">
