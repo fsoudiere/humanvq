@@ -22,11 +22,30 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { createClient } from "@/utils/supabase/client"
+import { IntakeForm } from "@/components/IntakeForm"
 
-type AppState = "intake" | "loading" | "results"
+type AppState = "auth" | "intake" | "analyzing" | "results"
+
+interface PowerPackItem {
+  name: string
+  description: string
+  icon: string
+}
+
+interface UpgradePathData {
+  efficiency_audit?: {
+    delegate_to_machine?: string[]
+    keep_for_human?: string[]
+  }
+  power_pack?: {
+    tool?: PowerPackItem
+    course?: PowerPackItem
+    step?: PowerPackItem
+  }
+}
 
 export default function Home() {
-  const [state, setState] = useState<AppState>("intake")
+  const [state, setState] = useState<AppState>("auth")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [authMode, setAuthMode] = useState<"signup" | "signin">("signup")
   const [authError, setAuthError] = useState<string | null>(null)
@@ -40,19 +59,149 @@ export default function Home() {
     url: "",
     type: "",
   })
+  const [upgradeData, setUpgradeData] = useState<UpgradePathData | null>(null)
+  const [isPolling, setIsPolling] = useState(false)
 
+  // Check session and profile status
   useEffect(() => {
-    const checkSession = async () => {
+    const checkStatus = async () => {
       const supabase = createClient()
       const {
         data: { session },
       } = await supabase.auth.getSession()
-      if (session) {
+
+      if (!session) {
+        setState("auth")
+        return
+      }
+
+      // Check if profile exists
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .maybeSingle()
+
+      if (profileError || !profile) {
+        setState("intake")
+        return
+      }
+
+      // Check if upgrade_paths exists
+      const { data: upgradePath, error: upgradeError } = await supabase
+        .from("upgrade_paths")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .maybeSingle()
+
+      if (upgradeError || !upgradePath) {
+        setState("analyzing")
+        return
+      }
+
+      // Parse and display results
+      try {
+        setUpgradeData({
+          efficiency_audit: upgradePath.efficiency_audit,
+          power_pack: upgradePath.power_pack,
+        })
         setState("results")
+      } catch (error) {
+        console.error("Error parsing upgrade path data:", error)
+        setState("analyzing")
       }
     }
-    checkSession()
+
+    checkStatus()
   }, [])
+
+// Poll for upgrade_paths when in analyzing state
+// Poll for upgrade_paths when in analyzing state
+useEffect(() => {
+  if (state !== "analyzing") {
+    setIsPolling(false)
+    return
+  }
+
+  setIsPolling(true)
+  let pollCount = 0
+  const maxPolls = 20 // 60 seconds timeout
+
+  console.log("🚀 Starting Polling Sequence...")
+
+  const pollUpgradePath = async () => {
+    const supabase = createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session) {
+      console.log("❌ No session found, stopping poll.")
+      setIsPolling(false)
+      return
+    }
+
+    pollCount++
+    console.log(`📡 Polling Attempt ${pollCount}/${maxPolls}...`)
+
+    // NOTE: Changed .single() to .maybeSingle() to prevent 406 errors when row is missing
+    const { data: upgradePath, error } = await supabase
+      .from("upgrade_paths")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle() 
+
+    // 🔍 DEBUG LOG: Show exactly what Supabase returned
+    console.log("🔍 Supabase Response:", { 
+      foundRow: !!upgradePath, 
+      hasAudit: !!upgradePath?.efficiency_audit, 
+      error: error?.message 
+    })
+
+    if (!error && upgradePath && upgradePath.efficiency_audit) {
+      console.log("✅ Success! Payload received. Switching to Results.")
+      
+      try {
+          // Handle cases where data might be a string (rare but possible) or object
+          const efficiency = typeof upgradePath.efficiency_audit === 'string' 
+              ? JSON.parse(upgradePath.efficiency_audit) 
+              : upgradePath.efficiency_audit;
+          
+          const power = typeof upgradePath.power_pack === 'string'
+              ? JSON.parse(upgradePath.power_pack)
+              : upgradePath.power_pack;
+
+          setUpgradeData({
+              efficiency_audit: efficiency,
+              power_pack: power
+          })
+          setState("results")
+          setIsPolling(false)
+      } catch (e) {
+          console.error("❌ Error parsing JSON:", e)
+      }
+
+    } else if (pollCount >= maxPolls) {
+      console.warn("⚠️ Polling timeout: No data after 60s")
+      setIsPolling(false)
+    } else {
+      console.log("⏳ Data not ready yet. Waiting 3s...")
+    }
+  }
+
+  // Run immediately, then interval
+  pollUpgradePath()
+  const interval = setInterval(pollUpgradePath, 3000)
+
+  return () => {
+    console.log("🛑 Polling stopped (cleanup).")
+    clearInterval(interval)
+    setIsPolling(false)
+  }
+}, [state])
+        
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -63,7 +212,6 @@ export default function Home() {
       const supabase = createClient()
 
       if (authMode === "signup") {
-        // Sign up new user
         const { data, error } = await supabase.auth.signUp({
           email: authData.email,
           password: authData.password,
@@ -76,15 +224,10 @@ export default function Home() {
         }
 
         if (data.user) {
-          // User created successfully, show loading and then results
-          setState("loading")
-          setTimeout(() => {
-            setState("results")
-            setAuthLoading(false)
-          }, 2000)
+          setAuthLoading(false)
+          setState("intake")
         }
       } else {
-        // Sign in existing user
         const { data, error } = await supabase.auth.signInWithPassword({
           email: authData.email,
           password: authData.password,
@@ -97,12 +240,9 @@ export default function Home() {
         }
 
         if (data.session) {
-          // User signed in successfully, show loading and then results
-          setState("loading")
-          setTimeout(() => {
-            setState("results")
-            setAuthLoading(false)
-          }, 2000)
+          setAuthLoading(false)
+          // Check status will be triggered by useEffect
+          window.location.reload()
         }
       }
     } catch (error) {
@@ -114,14 +254,12 @@ export default function Home() {
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    // Handle form submission here
     console.log("Form submitted:", formData)
     setFormData({ name: "", url: "", type: "" })
     setDialogOpen(false)
   }
 
   const handleCheckIn = () => {
-    // Simulate setting reminder
     alert("Check-in reminder set!")
   }
 
@@ -132,17 +270,19 @@ export default function Home() {
       if (error) {
         console.error("Error signing out:", error)
       } else {
-        // Reset state and redirect to intake
-        setState("intake")
+        setState("auth")
         setAuthData({ email: "", password: "" })
         setAuthError(null)
+        setUpgradeData(null)
+        setIsPolling(false)
       }
     } catch (error) {
       console.error("Error signing out:", error)
     }
   }
 
-  if (state === "intake") {
+  // Auth State - Login/Signup
+  if (state === "auth") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
         <main className="flex w-full max-w-2xl flex-col items-center gap-8 px-6 py-20 text-center">
@@ -295,7 +435,28 @@ export default function Home() {
     )
   }
 
-  if (state === "loading") {
+  // Intake State - Show IntakeForm
+  if (state === "intake") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
+        <main className="flex w-full max-w-2xl flex-col items-center gap-8 px-6 py-20">
+          <div className="text-center">
+            <h1 className="text-5xl font-light leading-tight tracking-tight text-black dark:text-zinc-50">
+              The world changed. Let's upgrade you to match it.
+            </h1>
+            <p className="mt-4 max-w-lg text-lg leading-relaxed text-zinc-600 dark:text-zinc-400">
+              Discover your Human+ score and the AI tools that specifically
+              support your unique profile.
+            </p>
+          </div>
+          <IntakeForm onSuccess={() => setState("analyzing")} />
+        </main>
+      </div>
+    )
+  }
+
+  // Analyzing State - Polling for results
+  if (state === "analyzing") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
         <div className="flex flex-col items-center gap-4">
@@ -310,6 +471,28 @@ export default function Home() {
         </div>
       </div>
     )
+  }
+
+  // Results State - Display upgrade path data
+  const delegateToMachine = upgradeData?.efficiency_audit?.delegate_to_machine || []
+  const keepForHuman = upgradeData?.efficiency_audit?.keep_for_human || []
+  const powerPack = upgradeData?.power_pack
+
+  // Default fallback icons
+  const getIcon = (iconName?: string) => {
+    switch (iconName?.toLowerCase()) {
+      case "bot":
+      case "tool":
+        return Bot
+      case "graduationcap":
+      case "course":
+        return GraduationCap
+      case "footprints":
+      case "step":
+        return Footprints
+      default:
+        return Bot
+    }
   }
 
   return (
@@ -327,6 +510,7 @@ export default function Home() {
             Logout
           </Button>
         </div>
+
         {/* The Efficiency Audit */}
         <section className="mb-20">
           <h2 className="mb-8 text-3xl font-light tracking-tight text-black dark:text-zinc-50">
@@ -342,18 +526,16 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <ul className="space-y-3 text-zinc-700 dark:text-zinc-300">
-                  <li className="flex items-center gap-2">
-                    <span className="text-red-600 dark:text-red-400">•</span>
-                    Logistics Forecasting
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="text-red-600 dark:text-red-400">•</span>
-                    Data Orchestration
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="text-red-600 dark:text-red-400">•</span>
-                    Content Drafting
-                  </li>
+                  {delegateToMachine.length > 0 ? (
+                    delegateToMachine.map((item, index) => (
+                      <li key={index} className="flex items-center gap-2">
+                        <span className="text-red-600 dark:text-red-400">•</span>
+                        {item}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-zinc-500">No items to delegate</li>
+                  )}
                 </ul>
               </CardContent>
             </Card>
@@ -367,18 +549,16 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <ul className="space-y-3 font-medium text-zinc-900 dark:text-zinc-100">
-                  <li className="flex items-center gap-2">
-                    <span className="text-green-600 dark:text-green-400">•</span>
-                    Cultural Governance
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="text-green-600 dark:text-green-400">•</span>
-                    Crisis Intuition
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="text-green-600 dark:text-green-400">•</span>
-                    Strategic Purpose
-                  </li>
+                  {keepForHuman.length > 0 ? (
+                    keepForHuman.map((item, index) => (
+                      <li key={index} className="flex items-center gap-2">
+                        <span className="text-green-600 dark:text-green-400">•</span>
+                        {item}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-zinc-500">No items to keep</li>
+                  )}
                 </ul>
               </CardContent>
             </Card>
@@ -392,58 +572,79 @@ export default function Home() {
           </h2>
           <div className="grid gap-6 md:grid-cols-3">
             {/* The Tool */}
-            <Card>
-              <CardHeader>
-                <div className="mb-4 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-                    <Bot className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
+            {powerPack?.tool && (
+              <Card>
+                <CardHeader>
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                      {(() => {
+                        const IconComponent = getIcon(powerPack.tool.icon)
+                        return <IconComponent className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
+                      })()}
+                    </div>
+                    <Badge variant="secondary">The Tool</Badge>
                   </div>
-                  <Badge variant="secondary">The Tool</Badge>
-                </div>
-                <CardTitle className="text-xl">n8n</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-zinc-600 dark:text-zinc-400">
-                  Agentic Workflows
-                </p>
-              </CardContent>
-            </Card>
+                  <CardTitle className="text-xl">{powerPack.tool.name}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-zinc-600 dark:text-zinc-400">
+                    {powerPack.tool.description}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
 
             {/* The Course */}
-            <Card>
-              <CardHeader>
-                <div className="mb-4 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-                    <GraduationCap className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
+            {powerPack?.course && (
+              <Card>
+                <CardHeader>
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                      {(() => {
+                        const IconComponent = getIcon(powerPack.course.icon)
+                        return <IconComponent className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
+                      })()}
+                    </div>
+                    <Badge variant="secondary">The Course</Badge>
                   </div>
-                  <Badge variant="secondary">The Course</Badge>
-                </div>
-                <CardTitle className="text-xl">MIT xPRO</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-zinc-600 dark:text-zinc-400">
-                  AI for Senior Execs
-                </p>
-              </CardContent>
-            </Card>
+                  <CardTitle className="text-xl">{powerPack.course.name}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-zinc-600 dark:text-zinc-400">
+                    {powerPack.course.description}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
 
             {/* First Step */}
-            <Card>
-              <CardHeader>
-                <div className="mb-4 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-                    <Footprints className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
+            {powerPack?.step && (
+              <Card>
+                <CardHeader>
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                      {(() => {
+                        const IconComponent = getIcon(powerPack.step.icon)
+                        return <IconComponent className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
+                      })()}
+                    </div>
+                    <Badge variant="secondary">First Step</Badge>
                   </div>
-                  <Badge variant="secondary">First Step</Badge>
-                </div>
-                <CardTitle className="text-xl">30-Day Audit</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-zinc-600 dark:text-zinc-400">
-                  Assess team 'AI-Vibe'
-                </p>
-              </CardContent>
-            </Card>
+                  <CardTitle className="text-xl">{powerPack.step.name}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-zinc-600 dark:text-zinc-400">
+                    {powerPack.step.description}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {!powerPack?.tool && !powerPack?.course && !powerPack?.step && (
+              <div className="col-span-3 text-center text-zinc-500">
+                No power pack items available
+              </div>
+            )}
           </div>
         </section>
 
