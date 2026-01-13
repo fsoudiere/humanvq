@@ -37,17 +37,29 @@ export async function generatePath(
       return { success: false, error: "User not authenticated" }
     }
 
-    // 2. Save Profile
-    await supabase.from("profiles").upsert({
-      user_id: user.id,
-      current_role: data.currentRole,
-      bio_context: data.bioContext,
-      main_goal: data.mainGoal,
-      daily_tools: data.dailyTools,
-      ai_comfort_level: data.aiComfortLevel,
-      startup_idea: data.startupIdea || null,
-      updated_at: new Date().toISOString(),
-    })
+    // 2. Save Profile (CORRECTED SYNTAX)
+    // We must assign the result to a variable so we can check 'error'
+    const { error: profileError } = await supabase.from("profiles").upsert(
+      {
+        user_id: user.id,
+        current_role: data.currentRole,
+        bio_context: data.bioContext,
+        main_goal: data.mainGoal,
+        daily_tools: data.dailyTools,
+        ai_comfort_level: data.aiComfortLevel,
+        startup_idea: data.startupIdea || null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' } // Explicitly look for the user_id conflict
+    )
+
+    if (profileError) {
+      console.error("❌ DB ERROR: Could not save profile:", profileError)
+      // Note: We are logging it but continuing execution. 
+      // If saving the profile is critical to the app working, you should return { success: false } here.
+    } else {
+      console.log("✅ Profile updated successfully in DB")
+    }
 
     // 3. Reset Old Paths
     await supabase.from("upgrade_paths").delete().eq("user_id", user.id)
@@ -74,7 +86,7 @@ export async function generatePath(
         match_count: 3,       // Get top 3
         min_machine_score: 1,
         min_human_score: 0,
-        filter_type: "ai_tool" // <--- RESTORED FILTER
+        filter_type: "ai_tool" 
       })
 
       if (toolError) {
@@ -91,7 +103,7 @@ export async function generatePath(
         match_count: 3,
         min_machine_score: 0,
         min_human_score: 1,
-        filter_type: "human_course" // <--- RESTORED FILTER
+        filter_type: "human_course"
       })
 
       if (courseError) {
