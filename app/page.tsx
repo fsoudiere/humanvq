@@ -10,6 +10,7 @@ import {
   RotateCcw,
   LogOut,
 } from "lucide-react"
+import ResourceVote from "@/components/resource-vote"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -30,6 +31,8 @@ type AppState = "auth" | "intake" | "analyzing" | "results"
 
 // Define the shape of a single resource
 interface ResourceItem {
+  id?: string;
+  userId?: string;
   title: string
   description: string
   url?: string // Optional link
@@ -54,6 +57,7 @@ interface UpgradePathData {
 
 export default function Home() {
   const [state, setState] = useState<AppState>("auth")
+  const [userId, setUserId] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [authMode, setAuthMode] = useState<"signup" | "signin">("signup")
   const [authError, setAuthError] = useState<string | null>(null)
@@ -82,7 +86,7 @@ export default function Home() {
         setState("auth")
         return
       }
-
+      setUserId(session.user.id)
       // Check if profile exists
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
@@ -663,6 +667,7 @@ useEffect(() => {
                       View Tool →
                     </a>
                   )}
+                  {userId && ( <ResourceVote  userId={userId}  url={tool.url}  /> )}
                 </CardContent>
               </Card>
             ))}
@@ -695,7 +700,8 @@ useEffect(() => {
                       View Course →
                     </a>
                   )}
-                </CardContent>
+                  {userId && ( <ResourceVote  userId={userId}  url={course.url}  /> )}
+                  </CardContent>
               </Card>
             ))}
           </div>
