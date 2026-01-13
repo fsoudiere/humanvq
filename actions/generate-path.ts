@@ -5,8 +5,8 @@ import { revalidatePath } from "next/cache"
 
 export interface GeneratePathInput {
   currentRole: string
+  bioContext: string // <--- NEW: Replaces biggestPain
   mainGoal: string
-  biggestPain: string
   dailyTools: string
   aiComfortLevel: number
   startupIdea?: string
@@ -37,11 +37,12 @@ export async function generatePath(
     }
 
     // Save to profiles table
+    // Note: We map bioContext to the new bio_context column
     const { error: profileError } = await supabase.from("profiles").upsert({
       user_id: user.id,
       current_role: data.currentRole,
+      bio_context: data.bioContext, // <--- CHANGED HERE
       main_goal: data.mainGoal,
-      biggest_pain: data.biggestPain,
       daily_tools: data.dailyTools,
       ai_comfort_level: data.aiComfortLevel,
       startup_idea: data.startupIdea || null,
@@ -54,6 +55,16 @@ export async function generatePath(
         success: false,
         error: "Failed to save profile",
       }
+    }
+    // Clear previous results so the polling loop waits for the new ones
+    const { error: deleteError } = await supabase
+      .from("upgrade_paths")
+      .delete()
+      .eq("user_id", user.id)
+
+    if (deleteError) {
+      console.warn("Could not clear old results:", deleteError)
+      // We continue anyway, as it might just be a new user (no results to delete)
     }
 
     // Send to n8n webhook
@@ -73,7 +84,7 @@ export async function generatePath(
         },
         body: JSON.stringify({
           user_id: user.id,
-          ...data,
+          ...data, // This now includes bioContext automatically
         }),
       })
 

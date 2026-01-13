@@ -6,6 +6,8 @@ import {
   GraduationCap,
   Footprints,
   Calendar,
+  Linkedin,
+  RotateCcw,
   LogOut,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -26,6 +28,13 @@ import { IntakeForm } from "@/components/IntakeForm"
 
 type AppState = "auth" | "intake" | "analyzing" | "results"
 
+// Define the shape of a single resource
+interface ResourceItem {
+  title: string
+  description: string
+  url?: string // Optional link
+}
+
 interface PowerPackItem {
   name: string
   description: string
@@ -37,11 +46,10 @@ interface UpgradePathData {
     delegate_to_machine?: string[]
     keep_for_human?: string[]
   }
-  power_pack?: {
-    tool?: PowerPackItem
-    course?: PowerPackItem
-    step?: PowerPackItem
-  }
+  // Now these are Arrays of items!
+  ai_tools?: ResourceItem[] 
+  human_courses?: ResourceItem[]
+  immediate_steps?: string[]
 }
 
 export default function Home() {
@@ -102,9 +110,11 @@ export default function Home() {
       // Parse and display results
       try {
         setUpgradeData({
-          efficiency_audit: upgradePath.efficiency_audit,
-          power_pack: upgradePath.power_pack,
-        })
+          efficiency_audit: upgradePath.efficiency_audit, // Assuming JSON structure is flat now
+          ai_tools: upgradePath.ai_tools,
+          human_courses: upgradePath.human_courses,
+          immediate_steps: upgradePath.immediate_steps
+      })
         setState("results")
       } catch (error) {
         console.error("Error parsing upgrade path data:", error)
@@ -160,23 +170,35 @@ useEffect(() => {
       error: error?.message 
     })
 
+    // ... inside the pollUpgradePath function ...
+
     if (!error && upgradePath && upgradePath.efficiency_audit) {
       console.log("✅ Success! Payload received. Switching to Results.")
       
       try {
-          // Handle cases where data might be a string (rare but possible) or object
+          // 1. Safe JSON Parse for Efficiency Audit
           const efficiency = typeof upgradePath.efficiency_audit === 'string' 
               ? JSON.parse(upgradePath.efficiency_audit) 
               : upgradePath.efficiency_audit;
           
-          const power = typeof upgradePath.power_pack === 'string'
-              ? JSON.parse(upgradePath.power_pack)
-              : upgradePath.power_pack;
+          // 2. Safe JSON Parse for AI Tools (New Array Structure)
+          const aiTools = typeof upgradePath.ai_tools === 'string'
+              ? JSON.parse(upgradePath.ai_tools)
+              : upgradePath.ai_tools;
 
+          // 3. Safe JSON Parse for Human Courses (New Array Structure)
+          const humanCourses = typeof upgradePath.human_courses === 'string'
+              ? JSON.parse(upgradePath.human_courses)
+              : upgradePath.human_courses;
+
+          // 4. Update State with the NEW structure
           setUpgradeData({
               efficiency_audit: efficiency,
-              power_pack: power
+              ai_tools: aiTools,           // <--- Mapped correctly
+              human_courses: humanCourses, // <--- Mapped correctly
+              immediate_steps: upgradePath.immediate_steps
           })
+          
           setState("results")
           setIsPolling(false)
       } catch (e) {
@@ -252,6 +274,20 @@ useEffect(() => {
     }
   }
 
+  const handleLinkedinLogin = async () => {
+    const supabase = createClient()
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'linkedin_oidc', // The modern OpenID Connect standard
+      options: {
+        redirectTo: `${window.location.origin}`, // Returns user to this page after login
+      },
+    })
+
+    if (error) {
+      console.error("LinkedIn Login Error:", error)
+      setAuthError(error.message)
+    }
+  }
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     console.log("Form submitted:", formData)
@@ -302,6 +338,30 @@ useEffect(() => {
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleAuth} className="space-y-4">
+                  {/* LinkedIn OAuth Button */}
+                  <Button
+                    type="button" // Important: preventing it from submitting the form
+                    variant="outline"
+                    className="w-full gap-2 border-blue-700/20 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-400/20 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:bg-blue-950/50"
+                    onClick={handleLinkedinLogin}
+                  >
+                    <Linkedin className="h-4 w-4" />
+                    {authMode === "signup" ? "Sign up with LinkedIn" : "Sign in with LinkedIn"}
+                  </Button>
+
+                  {/* The Divider */}
+                  <div className="relative py-2">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-zinc-200 dark:border-zinc-800" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-white px-2 text-zinc-500 dark:bg-zinc-900">
+                        Or continue with email
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Existing Email Input (Don't change anything below here) */}
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
                     <Input
@@ -476,7 +536,7 @@ useEffect(() => {
   // Results State - Display upgrade path data
   const delegateToMachine = upgradeData?.efficiency_audit?.delegate_to_machine || []
   const keepForHuman = upgradeData?.efficiency_audit?.keep_for_human || []
-  const powerPack = upgradeData?.power_pack
+  //const powerPack = upgradeData?.power_pack
 
   // Default fallback icons
   const getIcon = (iconName?: string) => {
@@ -498,8 +558,19 @@ useEffect(() => {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black">
       <main className="mx-auto max-w-6xl px-6 py-16">
+      
+        
         {/* Logout Button */}
         <div className="mb-8 flex justify-end">
+        <Button
+            onClick={() => setState("intake")} // <--- This switches view back to empty form
+            variant="ghost"
+            size="sm"
+            className="gap-2 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          >
+            <RotateCcw className="h-4 w-4" />
+            Start Over
+          </Button>
           <Button
             onClick={handleLogout}
             variant="outline"
@@ -566,83 +637,97 @@ useEffect(() => {
         </section>
 
         {/* The Power Pack */}
-        <section className="mb-20">
-          <h2 className="mb-8 text-3xl font-light tracking-tight text-black dark:text-zinc-50">
-            The Power Pack
-          </h2>
+        {/* === SECTION 1: TOP 3 AI TOOLS === */}
+        <section className="mb-16">
+          <div className="mb-8 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
+              <Bot className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <h2 className="text-3xl font-light tracking-tight text-black dark:text-zinc-50">
+              Top 3 AI Tools
+            </h2>
+          </div>
+          
           <div className="grid gap-6 md:grid-cols-3">
-            {/* The Tool */}
-            {powerPack?.tool && (
-              <Card>
+            {upgradeData?.ai_tools?.map((tool, i) => (
+              <Card key={i} className="group transition-all hover:border-blue-200 hover:shadow-md dark:hover:border-blue-800">
                 <CardHeader>
-                  <div className="mb-4 flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-                      {(() => {
-                        const IconComponent = getIcon(powerPack.tool.icon)
-                        return <IconComponent className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
-                      })()}
-                    </div>
-                    <Badge variant="secondary">The Tool</Badge>
-                  </div>
-                  <CardTitle className="text-xl">{powerPack.tool.name}</CardTitle>
+                  <CardTitle className="text-lg">{tool.title}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-zinc-600 dark:text-zinc-400">
-                    {powerPack.tool.description}
+                  <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                    {tool.description}
                   </p>
+                  {tool.url && (
+                    <a href={tool.url} target="_blank" className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">
+                      View Tool →
+                    </a>
+                  )}
                 </CardContent>
               </Card>
-            )}
+            ))}
+          </div>
+        </section>
 
-            {/* The Course */}
-            {powerPack?.course && (
-              <Card>
+        {/* === SECTION 2: TOP 3 HUMAN COURSES === */}
+        <section className="mb-20">
+          <div className="mb-8 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/30">
+              <GraduationCap className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+            </div>
+            <h2 className="text-3xl font-light tracking-tight text-black dark:text-zinc-50">
+              Top 3 Human Skills Courses
+            </h2>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-3">
+            {upgradeData?.human_courses?.map((course, i) => (
+              <Card key={i} className="group transition-all hover:border-purple-200 hover:shadow-md dark:hover:border-purple-800">
                 <CardHeader>
-                  <div className="mb-4 flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-                      {(() => {
-                        const IconComponent = getIcon(powerPack.course.icon)
-                        return <IconComponent className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
-                      })()}
-                    </div>
-                    <Badge variant="secondary">The Course</Badge>
-                  </div>
-                  <CardTitle className="text-xl">{powerPack.course.name}</CardTitle>
+                  <CardTitle className="text-lg">{course.title}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-zinc-600 dark:text-zinc-400">
-                    {powerPack.course.description}
+                   <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                    {course.description}
                   </p>
+                  {course.url && (
+                    <a href={course.url} target="_blank" className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400">
+                      View Course →
+                    </a>
+                  )}
                 </CardContent>
               </Card>
-            )}
+            ))}
+          </div>
+        </section>
+        {/* === SECTION 3: IMMEDIATE NEXT STEPS === */}
+        <section className="mb-20">
+          <div className="mb-8 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+              <Footprints className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <h2 className="text-3xl font-light tracking-tight text-black dark:text-zinc-50">
+              Your Immediate Action Plan
+            </h2>
+          </div>
 
-            {/* First Step */}
-            {powerPack?.step && (
-              <Card>
-                <CardHeader>
-                  <div className="mb-4 flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-                      {(() => {
-                        const IconComponent = getIcon(powerPack.step.icon)
-                        return <IconComponent className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
-                      })()}
+          <div className="grid gap-4">
+            {upgradeData?.immediate_steps?.length ? (
+              upgradeData.immediate_steps.map((step, i) => (
+                <Card key={i} className="border-l-4 border-l-emerald-500 transition-all hover:bg-zinc-50 dark:hover:bg-zinc-900">
+                  <CardContent className="flex items-center gap-4 p-6">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
+                      {i + 1}
                     </div>
-                    <Badge variant="secondary">First Step</Badge>
-                  </div>
-                  <CardTitle className="text-xl">{powerPack.step.name}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-zinc-600 dark:text-zinc-400">
-                    {powerPack.step.description}
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-
-            {!powerPack?.tool && !powerPack?.course && !powerPack?.step && (
-              <div className="col-span-3 text-center text-zinc-500">
-                No power pack items available
+                    <p className="text-lg text-zinc-700 dark:text-zinc-300">
+                      {step}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <div className="text-center text-zinc-500">
+                No immediate steps generated.
               </div>
             )}
           </div>
