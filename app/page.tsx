@@ -11,6 +11,7 @@ import {
   LogOut,
 } from "lucide-react"
 import ResourceVote from "@/components/resource-vote"
+import StackManager from "@/components/stack-manager"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -26,6 +27,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { createClient } from "@/utils/supabase/client"
 import { IntakeForm } from "@/components/IntakeForm"
+import ResourceIcon from "@/components/resource-icon"
 
 type AppState = "auth" | "intake" | "analyzing" | "results"
 
@@ -36,6 +38,8 @@ interface ResourceItem {
   title: string
   description: string
   url?: string // Optional link
+  capabilities?: string[]; 
+  difficulty_level?: number;
 }
 
 interface PowerPackItem {
@@ -656,16 +660,36 @@ useEffect(() => {
             {upgradeData?.ai_tools?.map((tool, i) => (
               <Card key={i} className="group transition-all hover:border-blue-200 hover:shadow-md dark:hover:border-blue-800">
                 <CardHeader>
+                  <div className="shrink-0 mt-1">
+              <ResourceIcon 
+                url={tool.url}
+                name={tool.title}
+                className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
+              />
+            </div>
                   <CardTitle className="text-lg">{tool.title}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
                     {tool.description}
                   </p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                  {tool.capabilities && tool.capabilities.slice(0, 3).map((cap: string, i: number) => (
+                    <span key={i} className="text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-2 py-1 rounded-sm border border-gray-200">
+                      {cap}
+                    </span>
+                  ))}
+                </div>
+                
                   {tool.url && (
                     <a href={tool.url} target="_blank" className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">
                       View Tool →
                     </a>
+                  )}
+                  {tool.id && (
+                    <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
+                      <StackManager resourceId={tool.id} />
+                    </div>
                   )}
                   {userId && ( <ResourceVote  userId={userId}  url={tool.url}  /> )}
                 </CardContent>
@@ -689,6 +713,13 @@ useEffect(() => {
             {upgradeData?.human_courses?.map((course, i) => (
               <Card key={i} className="group transition-all hover:border-purple-200 hover:shadow-md dark:hover:border-purple-800">
                 <CardHeader>
+                <div className="shrink-0 mt-1">
+              <ResourceIcon 
+                url={course.url}
+                name={course.title}
+                className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
+              />
+            </div>
                   <CardTitle className="text-lg">{course.title}</CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -699,6 +730,11 @@ useEffect(() => {
                     <a href={course.url} target="_blank" className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400">
                       View Course →
                     </a>
+                  )}
+                  {course.id && (
+                    <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
+                      <StackManager resourceId={course.id} isCourse={true} />
+                    </div>
                   )}
                   {userId && ( <ResourceVote  userId={userId}  url={course.url}  /> )}
                   </CardContent>
