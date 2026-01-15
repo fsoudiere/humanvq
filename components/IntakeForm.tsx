@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useForm } from "react-hook-form"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -53,6 +54,7 @@ const PREDEFINED_ROLES = [
 ]
 
 export function IntakeForm({ onSuccess }: IntakeFormProps) {
+  const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showCustomRole, setShowCustomRole] = useState(false)
@@ -102,12 +104,27 @@ export function IntakeForm({ onSuccess }: IntakeFormProps) {
     setError(null)
 
     try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        setError("User not authenticated")
+        setIsSubmitting(false)
+        return
+      }
+
       const result = await generatePath(data)
       if (!result.success) {
         setError(result.error || "Failed to generate upgrade path")
         setIsSubmitting(false)
       } else {
-        onSuccess();
+        // Redirect to the new path URL
+        if (result.pathId) {
+          router.push(`/stack/${user.id}/${result.pathId}`)
+        } else {
+          // Fallback to onSuccess callback
+          onSuccess();
+        }
       }
     } catch (err) {
       console.error("Error submitting form:", err)

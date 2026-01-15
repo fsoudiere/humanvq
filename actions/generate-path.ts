@@ -20,6 +20,7 @@ export interface GeneratePathInput {
 export interface GeneratePathResult {
   success: boolean
   error?: string
+  pathId?: string
 }
 
 export async function generatePath(
@@ -61,8 +62,26 @@ export async function generatePath(
       console.log("✅ Profile updated successfully in DB")
     }
 
-    // 3. Reset Old Paths
-    await supabase.from("upgrade_paths").delete().eq("user_id", user.id)
+    // 3. Create a new path record (placeholder, will be updated by n8n)
+    const { data: newPath, error: pathCreateError } = await supabase
+      .from("upgrade_paths")
+      .insert({
+        user_id: user.id,
+        efficiency_audit: null,
+        ai_tools: null,
+        human_courses: null,
+        immediate_steps: null,
+      })
+      .select("id")
+      .single()
+
+    if (pathCreateError || !newPath) {
+      console.error("❌ Failed to create path record:", pathCreateError)
+      return { success: false, error: "Failed to create path" }
+    }
+
+    const pathId = newPath.id
+    console.log(`✅ Created path record with ID: ${pathId}`)
 
     // =========================================================
     // 🧠 DATABASE MATCHING (FILTERS ENABLED)
@@ -137,6 +156,7 @@ export async function generatePath(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         user_id: user.id,
+        path_id: pathId,
         ...data,
         verified_matches: {
           tools: verifiedTools,
@@ -152,7 +172,7 @@ export async function generatePath(
     
     console.log("✅ SUCCESS: Data sent to n8n!")
     revalidatePath("/")
-    return { success: true }
+    return { success: true, pathId }
     
   } catch (error) {
     console.error("❌ CRASH:", error)
