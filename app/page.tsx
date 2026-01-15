@@ -1,15 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import {
-  Bot,
-  GraduationCap,
-  Footprints,
-  Calendar,
-  Linkedin,
-  RotateCcw,
-  LogOut,
-} from "lucide-react"
+import { Bot, GraduationCap, Footprints, Calendar, Linkedin, RotateCcw, LogOut } from "lucide-react"
+import ResourceIcon from "@/components/resource-icon"
+import { createClient } from "@/utils/supabase/client"
 import ResourceVote from "@/components/resource-vote"
 import StackManager from "@/components/stack-manager"
 import { Button } from "@/components/ui/button"
@@ -25,9 +19,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { createClient } from "@/utils/supabase/client"
 import { IntakeForm } from "@/components/IntakeForm"
-import ResourceIcon from "@/components/resource-icon"
 
 type AppState = "auth" | "intake" | "analyzing" | "results"
 
@@ -37,6 +29,7 @@ interface ResourceItem {
   userId?: string;
   title: string
   description: string
+  logo_url?: string
   url?: string // Optional link
   capabilities?: string[]; 
   difficulty_level?: number;
@@ -77,7 +70,21 @@ export default function Home() {
   })
   const [upgradeData, setUpgradeData] = useState<UpgradePathData | null>(null)
   const [isPolling, setIsPolling] = useState(false)
-
+  const [resourceLogos, setResourceLogos] = useState<Record<string, string>>({})
+  useEffect(() => {
+    const fetchLogos = async () => {
+      const supabase = createClient()
+      const { data } = await supabase.from("resources").select("id, logo_url")
+      if (data) {
+        const logoMap = data.reduce((acc, curr) => {
+          if (curr.logo_url) acc[curr.id] = curr.logo_url
+          return acc
+        }, {} as Record<string, string>)
+        setResourceLogos(logoMap)
+      }
+    }
+    fetchLogos()
+  }, [])
   // Check session and profile status
   useEffect(() => {
     const checkStatus = async () => {
@@ -662,6 +669,7 @@ useEffect(() => {
                 <CardHeader>
                   <div className="shrink-0 mt-1">
               <ResourceIcon 
+                logo_url={tool.id ? resourceLogos[tool.id] : undefined}
                 url={tool.url}
                 name={tool.title}
                 className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
@@ -715,6 +723,7 @@ useEffect(() => {
                 <CardHeader>
                 <div className="shrink-0 mt-1">
               <ResourceIcon 
+                logo_url={course.id ? resourceLogos[course.id] : undefined}
                 url={course.url}
                 name={course.title}
                 className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"

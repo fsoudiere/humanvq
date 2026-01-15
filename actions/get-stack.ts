@@ -5,35 +5,39 @@ import { createClient } from "@/utils/supabase/server"
 export async function getUserStack(targetUserId: string) {
   const supabase = await createClient()
 
-  // Fetch stack items joined with resource details
-  const { data: stackItems, error } = await supabase
+  // 1. Fetch Stack (Tools/Courses)
+  const { data: stackItems, error: stackError } = await supabase
     .from("user_stacks")
     .select(`
       status,
       resource:resources (
-        id,
-        name,
-        description,
-        url,
-        capabilities,
-        difficulty_level,
-        hvq_primary_pillar,
-        type
+        id, name, description, url, logo_url, capabilities, type
       )
     `)
     .eq("user_id", targetUserId)
 
-  if (error) {
-    console.error("Error fetching stack:", error)
+  // 2. Fetch ALL Upgrade Paths (The Projects) - NEW STEP
+  const { data: paths, error: pathError } = await supabase
+    .from("upgrade_paths")
+    .select("*")
+    .eq("user_id", targetUserId)
+    .order('created_at', { ascending: false })
+
+  if (stackError) {
+    console.error("Error fetching stack:", stackError)
     return null
   }
 
-  // Fetch User Profile (for the page title)
+  // 3. Fetch Profile
   const { data: profile } = await supabase
-    .from("profiles") // Ensure this table exists (or change to 'users' table if you use that)
+    .from("profiles")
     .select("current_role, main_goal")
     .eq("user_id", targetUserId)
     .single()
 
-  return { stack: stackItems, profile }
+  return { 
+    stack: stackItems || [], 
+    profile,
+    paths: paths || [] // Returning paths now
+  }
 }

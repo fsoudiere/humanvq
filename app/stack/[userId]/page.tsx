@@ -205,6 +205,7 @@ function TierSection({ title, items, isOwner }: any) {
             <div className="shrink-0 mt-1">
               <ResourceIcon 
                 url={item.resource.url}
+                logo_url={item.resource.logo_url}
                 name={item.resource.name}
                 className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
               />
@@ -246,7 +247,8 @@ function CourseGroup({ title, items, isOwner, icon, colorClass }: any) {
             <div className="shrink-0">
                  <ResourceIcon 
                    url={item.resource.url}
-                   name="Platform Logo"
+                   logo_url={item.resource.logo_url}
+                   name={item.resource.name}
                    className="w-16 h-16 rounded object-contain"
                  />
               </div>
