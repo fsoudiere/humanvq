@@ -1,4 +1,4 @@
-import { getUserStack } from "@/actions/get_stack"
+import { getUserStack } from "@/actions/get-stack"
 import { createClient } from "@/utils/supabase/server"
 import StackManager from "@/components/stack-manager"
 import Link from "next/link"
@@ -12,6 +12,15 @@ export default async function PublicStackPage({ params }: { params: { userId: st
   const supabase = await createClient()
   const { data: { user: currentUser } } = await supabase.auth.getUser()
   const isOwner = currentUser?.id === params.userId
+
+  // Fetch the latest path's role from upgrade_paths
+  const { data: latestPath } = await supabase
+    .from('upgrade_paths')
+    .select('role')
+    .eq('user_id', params.userId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   if (stack.length === 0) {
     return (
@@ -34,7 +43,7 @@ export default async function PublicStackPage({ params }: { params: { userId: st
     <div className="max-w-4xl mx-auto py-12 px-4">
       <div className="text-center mb-12">
         <h1 className="text-4xl font-extrabold mb-2">
-          {profile?.current_role || "Founder"}'s AI Stack
+          {latestPath?.role || "Human"}'s AI Stack
         </h1>
         {isOwner && (
           <p className="text-green-600 text-sm font-medium bg-green-50 inline-block px-3 py-1 rounded-full border border-green-100">
