@@ -14,8 +14,8 @@ export default function StackManager({ resourceId, initialStatus, isCourse = fal
   const [loading, setLoading] = useState(!initialStatus)
   const supabase = createClient()
 
-  // 1. Handle "Ghost" Tools (Not in DB)
-  if (!resourceId) {
+  // 1. Handle "Ghost" Tools (Not in DB) - also check for 'null' string
+  if (!resourceId || resourceId === 'null') {
     return (
       <div className="mt-4">
         <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-1 rounded border border-gray-200 cursor-not-allowed select-none">
@@ -38,7 +38,7 @@ export default function StackManager({ resourceId, initialStatus, isCourse = fal
         .select("status")
         .eq("user_id", user.id)
         .eq("resource_id", resourceId)
-        .single()
+        .maybeSingle()
       
       if (data) setStatus(data.status)
       setLoading(false)
@@ -48,6 +48,12 @@ export default function StackManager({ resourceId, initialStatus, isCourse = fal
 
   // 3. Update Database
   const updateStack = async (newStatus: string) => {
+    // Safety check: prevent null resourceId from being sent to Supabase
+    if (!resourceId || resourceId === 'null') {
+      console.error("Cannot update stack: resourceId is null or 'null'")
+      return
+    }
+
     setStatus(newStatus)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return

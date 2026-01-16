@@ -6,7 +6,65 @@ import LogoutButton from "./logout-button"
 
 export default async function Header() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  
+  // STEP 1: Auth First - Always get user from auth first
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  
+  // If no user, don't try to fetch profile
+  if (!user || authError) {
+    return (
+      <header className="sticky top-0 z-50 w-full border-b border-zinc-200 bg-white/80 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          <Link href="/" className="flex items-center gap-2">
+            <span className="text-xl font-light tracking-tight text-black dark:text-zinc-50">
+              HumanVQ
+            </span>
+          </Link>
+          <nav className="flex items-center gap-4">
+            <Link href="/">
+              <Button size="sm" variant="outline">Get Started</Button>
+            </Link>
+          </nav>
+        </div>
+      </header>
+    )
+  }
+  
+  // STEP 2: Profile Second - Fetch profile using user.id from auth
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_organization, organization_name")
+    .eq("user_id", user.id)
+    .maybeSingle()
+  
+  // STEP 3: Fail-Safe - If profile is null but user exists, use user metadata
+  const displayName = profile?.organization_name || 
+                     user.user_metadata?.full_name || 
+                     user.user_metadata?.name ||
+                     user.email?.split('@')[0] || // Use email prefix as last resort
+                     "User"
+  
+  const isOrganization = profile?.is_organization || false
+  
+  // Determine stack label: if organization, show "{org_name}'s Stack", otherwise "My Stack"
+  const stackLabel = isOrganization && profile?.organization_name
+    ? `${profile.organization_name}'s Stack`
+    : isOrganization && !profile?.organization_name
+    ? "Company Stack"
+    : "My Stack"
+  
+  // Use username for link if available, otherwise fall back to user_id
+  const profileLink = profile?.username ? `/u/${profile.username}` : `/stack/${user.id}`
+  
+  console.log("🔍 Header - Auth & Profile:", {
+    userId: user.id,
+    userEmail: user.email,
+    userMetadata: user.user_metadata,
+    profile: profile,
+    displayName: displayName,
+    isOrganization: isOrganization,
+    stackLabel: stackLabel
+  })
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-zinc-200 bg-white/80 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80">
@@ -28,9 +86,9 @@ export default async function Header() {
                   Home
                 </Button>
               </Link>
-              <Link href={`/stack/${user.id}`}>
+              <Link href={profileLink}>
                 <Button variant="ghost" size="sm" className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-                  My Stack 📚
+                  {stackLabel} 📚
                 </Button>
               </Link>
               <LogoutButton />

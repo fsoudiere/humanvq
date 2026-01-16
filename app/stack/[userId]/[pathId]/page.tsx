@@ -2,13 +2,35 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Bot, GraduationCap, Footprints, Calendar, Linkedin, RotateCcw, LogOut } from "lucide-react"
+import { Bot, GraduationCap, Footprints, Calendar, Linkedin, LogOut, Settings, Plus } from "lucide-react"
 import ResourceIcon from "@/components/resource-icon"
 import { createClient } from "@/utils/supabase/client"
-import ResourceVote from "@/components/resource-vote"
 import StackManager from "@/components/stack-manager"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { IntakeForm } from "@/components/IntakeForm"
+import { EditablePathTitle } from "@/components/editable-path-title"
+import { DeletePathButton } from "@/components/delete-path-button"
+import { SharePathButton } from "@/components/share-path-button"
+import { Trash2 } from "lucide-react"
+
+// Define the shape of a delegate task item (for delegate_to_machine)
+interface DelegateTaskItem {
+  task: string
+  is_completed: boolean
+  is_automated?: boolean  // Optional - kept for n8n data but not used in UI logic
+}
+
+// Define the shape of an immediate step item
+interface ImmediateStepItem {
+  text: string
+  is_completed: boolean
+}
+
+// Union type for task items
+type TaskItem = DelegateTaskItem | ImmediateStepItem
 
 // Define the shape of a single resource
 interface ResourceItem {
@@ -24,16 +46,54 @@ interface ResourceItem {
 
 interface UpgradePathData {
   efficiency_audit?: {
-    delegate_to_machine?: string[]
+    delegate_to_machine?: DelegateTaskItem[]
     keep_for_human?: string[]
   }
   // Now these are Arrays of items!
   ai_tools?: ResourceItem[] 
   human_courses?: ResourceItem[]
-  immediate_steps?: string[]
+  immediate_steps?: ImmediateStepItem[]
+  hvq_score?: number
 }
 
 type AppState = "loading" | "analyzing" | "results" | "error"
+
+// Animated score badge component
+function ScoreBadge({ points }: { points: number }) {
+  const [displayPoints, setDisplayPoints] = useState(0)
+  const [isAnimating, setIsAnimating] = useState(false)
+
+  useEffect(() => {
+    setIsAnimating(true)
+    const targetPoints = points
+    const duration = 600
+    const steps = 20
+    const increment = targetPoints / steps
+    let currentStep = 0
+
+    const interval = setInterval(() => {
+      currentStep++
+      if (currentStep <= steps) {
+        setDisplayPoints(Math.min(Math.round(increment * currentStep), targetPoints))
+      } else {
+        setDisplayPoints(targetPoints)
+        clearInterval(interval)
+        setTimeout(() => setIsAnimating(false), 200)
+      }
+    }, duration / steps)
+
+    return () => clearInterval(interval)
+  }, [points])
+
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-1 rounded-full transition-all ${
+      isAnimating ? 'scale-110' : 'scale-100'
+    }`}>
+      <span className="text-sm">+</span>
+      <span>{displayPoints}</span>
+    </span>
+  )
+}
 
 export default function PathPage() {
   const params = useParams()
@@ -46,6 +106,44 @@ export default function PathPage() {
   const [isPolling, setIsPolling] = useState(false)
   const [resourceLogos, setResourceLogos] = useState<Record<string, string>>({})
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  
+  // Strategy data from upgrade_paths
+  const [strategyData, setStrategyData] = useState<{
+    role: string | null
+    main_goal: string | null
+    context: string | null
+  }>({
+    role: null,
+    main_goal: null,
+    context: null
+  })
+  
+  // Path metadata
+  const [pathTitle, setPathTitle] = useState<string>("")
+  const [currentHvqScore, setCurrentHvqScore] = useState<number | null>(null)
+  const [isPublic, setIsPublic] = useState<boolean>(false)
+  
+  // Edit Strategy Dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+
+  // Calculate HVQ score based on current state
+  const calculateHVQScore = (data: UpgradePathData): number => {
+    const BASE_SCORE = 100
+    
+    // Count completed immediate steps (+15 each)
+    const completedSteps = (data.immediate_steps || []).filter(
+      (step) => step.is_completed
+    ).length
+    const stepPoints = completedSteps * 15
+    
+    // Count completed delegate tasks (+10 each)
+    const completedDelegateTasks = (data.efficiency_audit?.delegate_to_machine || []).filter(
+      (task) => task.is_completed
+    ).length
+    const delegatePoints = completedDelegateTasks * 10
+    
+    return BASE_SCORE + stepPoints + delegatePoints
+  }
 
   useEffect(() => {
     const fetchLogos = async () => {
@@ -94,6 +192,18 @@ export default function PathPage() {
         return
       }
 
+      // Store strategy data from upgrade_paths
+      setStrategyData({
+        role: upgradePath.role || null,
+        main_goal: upgradePath.main_goal || null,
+        context: upgradePath.context || null
+      })
+
+      // Store path metadata
+      setPathTitle(upgradePath.path_title || upgradePath.main_goal || "Untitled Path")
+      setCurrentHvqScore(upgradePath.current_hvq_score || upgradePath.hvq_score || null)
+      setIsPublic(upgradePath.is_public || false)
+
       // Check if path is ready (has efficiency_audit)
       if (upgradePath.efficiency_audit) {
         try {
@@ -110,11 +220,24 @@ export default function PathPage() {
               ? JSON.parse(upgradePath.human_courses)
               : upgradePath.human_courses;
 
-          setUpgradeData({
+          const immediateSteps = typeof upgradePath.immediate_steps === 'string'
+              ? JSON.parse(upgradePath.immediate_steps)
+              : upgradePath.immediate_steps;
+
+          const pathData = {
               efficiency_audit: efficiency,
               ai_tools: aiTools,
               human_courses: humanCourses,
-              immediate_steps: upgradePath.immediate_steps
+              immediate_steps: immediateSteps,
+              hvq_score: upgradePath.hvq_score || null
+          }
+
+          // Calculate score if not set
+          const hvqScore = pathData.hvq_score ?? calculateHVQScore(pathData)
+
+          setUpgradeData({
+              ...pathData,
+              hvq_score: hvqScore
           })
           
           setState("results")
@@ -174,6 +297,19 @@ export default function PathPage() {
       if (!error && upgradePath && upgradePath.efficiency_audit) {
         console.log("✅ Success! Payload received. Switching to Results.")
         
+        // Update strategy data if available
+        if (upgradePath.role || upgradePath.main_goal || upgradePath.context) {
+          setStrategyData({
+            role: upgradePath.role || null,
+            main_goal: upgradePath.main_goal || null,
+            context: upgradePath.context || null
+          })
+        }
+
+        // Update path metadata
+        setPathTitle(upgradePath.path_title || upgradePath.main_goal || "Untitled Path")
+        setIsPublic(upgradePath.is_public || false)
+        
         try {
           const efficiency = typeof upgradePath.efficiency_audit === 'string' 
               ? JSON.parse(upgradePath.efficiency_audit) 
@@ -187,11 +323,27 @@ export default function PathPage() {
               ? JSON.parse(upgradePath.human_courses)
               : upgradePath.human_courses;
 
-          setUpgradeData({
+          const immediateSteps = typeof upgradePath.immediate_steps === 'string'
+              ? JSON.parse(upgradePath.immediate_steps)
+              : upgradePath.immediate_steps;
+
+          const pathData = {
               efficiency_audit: efficiency,
               ai_tools: aiTools,
               human_courses: humanCourses,
-              immediate_steps: upgradePath.immediate_steps
+              immediate_steps: immediateSteps,
+              hvq_score: upgradePath.hvq_score || null
+          }
+
+          // Calculate score if not set
+          const hvqScore = pathData.hvq_score ?? calculateHVQScore(pathData)
+
+          // Update current HVQ score in state
+          setCurrentHvqScore(upgradePath.current_hvq_score || hvqScore)
+
+          setUpgradeData({
+              ...pathData,
+              hvq_score: hvqScore
           })
           
           setState("results")
@@ -220,6 +372,38 @@ export default function PathPage() {
       setIsPolling(false)
     }
   }, [state, isPolling, pathId])
+
+  const handleNewPath = () => {
+    // Clear any analyzing or loading states by stopping polling
+    setIsPolling(false)
+    setState("results") // Set to a stable state before redirect
+    setUpgradeData(null)
+    setErrorMessage(null)
+    
+    // Redirect to create page to start a new path
+    router.push(`/stack/${userId}/create`)
+  }
+  
+  const handleStrategyUpdate = async (updatedPathId?: string) => {
+    // Refresh strategy data after update
+    if (pathId) {
+      const supabase = createClient()
+      const { data: updatedPath } = await supabase
+        .from("upgrade_paths")
+        .select("role, main_goal, context")
+        .eq("id", pathId)
+        .maybeSingle()
+      
+      if (updatedPath) {
+        setStrategyData({
+          role: updatedPath.role || null,
+          main_goal: updatedPath.main_goal || null,
+          context: updatedPath.context || null
+        })
+      }
+    }
+    setEditDialogOpen(false)
+  }
 
   const handleLogout = async () => {
     try {
@@ -290,22 +474,244 @@ export default function PathPage() {
   // Results State - Display upgrade path data
   const delegateToMachine = upgradeData?.efficiency_audit?.delegate_to_machine || []
   const keepForHuman = upgradeData?.efficiency_audit?.keep_for_human || []
+  const immediateSteps = upgradeData?.immediate_steps || []
+
+  // Unified function to update Supabase with path data
+  const updatePathInSupabase = async (
+    updatedData: UpgradePathData
+  ) => {
+    // Ensure pathId is available
+    if (!pathId) {
+      console.error("pathId is undefined. Cannot update Supabase.")
+      throw new Error("pathId is required for update")
+    }
+
+    try {
+      const supabase = createClient()
+
+      // Construct the full efficiency_audit object preserving all fields
+      // Use updatedData if provided, otherwise fall back to current upgradeData
+      const currentEfficiencyAudit = upgradeData?.efficiency_audit || {}
+      const updatedEfficiencyAudit = {
+        delegate_to_machine: updatedData.efficiency_audit?.delegate_to_machine ?? currentEfficiencyAudit.delegate_to_machine ?? [],
+        keep_for_human: updatedData.efficiency_audit?.keep_for_human ?? currentEfficiencyAudit.keep_for_human ?? []
+      }
+
+      const payload = {
+        immediate_steps: updatedData.immediate_steps ?? [],
+        efficiency_audit: updatedEfficiencyAudit,
+        hvq_score: updatedData.hvq_score ?? calculateHVQScore(updatedData),
+        updated_at: new Date().toISOString()
+      }
+
+      console.log("Updating path:", pathId, "with payload:", payload)
+      console.log("Payload JSON:", JSON.stringify(payload, null, 2))
+
+      const { data, error } = await supabase
+        .from("upgrade_paths")
+        .update(payload)
+        .eq("id", pathId)
+        .select()
+    
+      if (error) {
+        console.error("SUPABASE ERROR:", error.message, "Details:", error.details, "Hint:", error.hint, "Code:", error.code)
+        throw error
+      }
+    
+      console.log("✅ Update Success:", data)
+      return data
+    } catch (error) {
+      console.error("Failed to update path data:", error)
+      throw error
+    }
+  }
+
+  // Handle toggle for delegate_to_machine tasks
+  const handleToggleDelegate = async (index: number) => {
+    if (!upgradeData?.efficiency_audit?.delegate_to_machine) return
+    
+    // Store previous state for potential revert
+    const previousData = upgradeData
+    
+    // Calculate updated values before state update
+    const updatedDelegateList = upgradeData.efficiency_audit.delegate_to_machine.map((item, i) =>
+      i === index ? { ...item, is_completed: !item.is_completed } : item
+    )
+    
+    // Construct the full efficiency_audit object preserving keep_for_human
+    const updatedEfficiencyAudit = {
+      ...upgradeData.efficiency_audit,
+      delegate_to_machine: updatedDelegateList
+    }
+    
+    const updatedData = {
+      ...upgradeData,
+      efficiency_audit: updatedEfficiencyAudit
+    }
+    
+    const newScore = calculateHVQScore(updatedData)
+    
+    // Optimistically update local state
+    setUpgradeData({
+      ...updatedData,
+      hvq_score: newScore
+    })
+    
+    // Update score in header
+    setCurrentHvqScore(newScore)
+    
+    // Update Supabase in the background
+    try {
+      await updatePathInSupabase({
+        ...updatedData,
+        hvq_score: newScore
+      })
+    } catch (error) {
+      // Revert on error
+      console.error("Failed to update delegate task, reverting:", error)
+      setUpgradeData(previousData)
+    }
+  }
+
+  // Handle toggle for immediate_steps tasks
+  const handleToggleStep = async (index: number) => {
+    if (!upgradeData?.immediate_steps) return
+    
+    // Store previous state for potential revert
+    const previousData = upgradeData
+    
+    // Calculate updated values before state update
+    const updatedSteps = upgradeData.immediate_steps.map((step, i) =>
+      i === index ? { ...step, is_completed: !step.is_completed } : step
+    )
+    
+    const updatedData = {
+      ...upgradeData,
+      immediate_steps: updatedSteps
+    }
+    
+    const newScore = calculateHVQScore(updatedData)
+    
+    // Optimistically update local state
+    setUpgradeData({
+      ...updatedData,
+      hvq_score: newScore
+    })
+    
+    // Update score in header
+    setCurrentHvqScore(newScore)
+    
+    // Update Supabase in the background
+    try {
+      await updatePathInSupabase({
+        ...updatedData,
+        hvq_score: newScore
+      })
+    } catch (error) {
+      // Revert on error
+      console.error("Failed to update immediate step, reverting:", error)
+      setUpgradeData(previousData)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black">
       <main className="mx-auto max-w-6xl px-6 py-16">
         
-        {/* Logout Button */}
+        {/* Premium Header Section */}
+        <div className="mb-12 pb-8 border-b border-zinc-200 dark:border-zinc-800">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            {/* Left: Title and Score */}
+            <div className="flex-1">
+              <EditablePathTitle 
+                pathId={pathId}
+                initialTitle={pathTitle}
+                onUpdate={(newTitle) => setPathTitle(newTitle)}
+              />
+              
+              {/* HVQ Score Badge */}
+              {currentHvqScore !== null && (
+                <div className="mt-4 flex items-center gap-3">
+                  <div className={`inline-flex items-center justify-center px-4 py-2 rounded-xl font-bold text-2xl shadow-sm border-2 ${
+                    currentHvqScore < 120
+                      ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800"
+                      : currentHvqScore >= 120 && currentHvqScore <= 150
+                      ? "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/30 dark:text-yellow-400 dark:border-yellow-800"
+                      : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800"
+                  }`}>
+                    <span className="text-sm mr-1">HVQ</span>
+                    <span>{currentHvqScore}</span>
+                  </div>
+                  <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                    {currentHvqScore < 120 
+                      ? "Manual/Low Leverage" 
+                      : currentHvqScore >= 120 && currentHvqScore <= 150
+                      ? "Optimizing"
+                      : "High Leverage"}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Right: Action Buttons */}
+            <div className="flex gap-2">
+              {/* Share Button */}
+              <SharePathButton pathId={pathId} initialIsPublic={isPublic} />
+              
+              {/* Edit Strategy Button */}
+              <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Settings className="h-4 w-4" />
+                    Edit Strategy
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Edit Strategy</DialogTitle>
+                    <DialogDescription>
+                      Update your role, goal, and context for this path.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="py-4">
+                    <IntakeForm
+                      pathId={pathId}
+                      initialData={{
+                        role: strategyData.role,
+                        main_goal: strategyData.main_goal,
+                        context: strategyData.context
+                      }}
+                      onSuccess={handleStrategyUpdate}
+                      showCard={false}
+                    />
+                  </div>
+                </DialogContent>
+              </Dialog>
+              
+              {/* Delete Path Button */}
+              <DeletePathButton pathId={pathId} />
+            </div>
+          </div>
+        </div>
+        
+        {/* Legacy Action Buttons */}
         <div className="mb-8 flex justify-end gap-2">
+          {/* New Path Button */}
           <Button
-            onClick={() => router.push("/")}
+            onClick={handleNewPath}
             variant="ghost"
             size="sm"
             className="gap-2 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
           >
-            <RotateCcw className="h-4 w-4" />
-            Start Over
+            <Plus className="h-4 w-4" />
+            New Path
           </Button>
+          
+          {/* Logout Button */}
           <Button
             onClick={handleLogout}
             variant="outline"
@@ -334,9 +740,25 @@ export default function PathPage() {
                 <ul className="space-y-3 text-zinc-700 dark:text-zinc-300">
                   {delegateToMachine.length > 0 ? (
                     delegateToMachine.map((item, index) => (
-                      <li key={index} className="flex items-center gap-2">
-                        <span className="text-red-600 dark:text-red-400">•</span>
-                        {item}
+                      <li key={index} className="flex items-start gap-3">
+                        <Checkbox
+                          checked={item.is_completed}
+                          onCheckedChange={() => handleToggleDelegate(index)}
+                          className="mt-0.5"
+                        />
+                        <label
+                          className={`flex-1 cursor-pointer ${
+                            item.is_completed 
+                              ? "text-zinc-500 dark:text-zinc-500" 
+                              : "text-zinc-700 dark:text-zinc-300"
+                          }`}
+                          onClick={() => handleToggleDelegate(index)}
+                        >
+                          {item.task}
+                        </label>
+                        {item.is_completed && (
+                          <ScoreBadge points={10} />
+                        )}
                       </li>
                     ))
                   ) : (
@@ -414,12 +836,11 @@ export default function PathPage() {
                       View Tool →
                     </a>
                   )}
-                  {tool.id && (
+                  {tool.id && tool.id !== 'null' && (
                     <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
                       <StackManager resourceId={tool.id} />
                     </div>
                   )}
-                  {userId && ( <ResourceVote  userId={userId}  url={tool.url}  /> )}
                 </CardContent>
               </Card>
             ))}
@@ -465,7 +886,6 @@ export default function PathPage() {
                       <StackManager resourceId={course.id} isCourse={true} />
                     </div>
                   )}
-                  {userId && ( <ResourceVote  userId={userId}  url={course.url}  /> )}
                 </CardContent>
               </Card>
             ))}
@@ -484,16 +904,32 @@ export default function PathPage() {
           </div>
 
           <div className="grid gap-4">
-            {upgradeData?.immediate_steps?.length ? (
-              upgradeData.immediate_steps.map((step, i) => (
+            {immediateSteps.length > 0 ? (
+              immediateSteps.map((step, i) => (
                 <Card key={i} className="border-l-4 border-l-emerald-500 transition-all hover:bg-zinc-50 dark:hover:bg-zinc-900">
-                  <CardContent className="flex items-center gap-4 p-6">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-                      {i + 1}
+                  <CardContent className="flex items-start gap-4 p-6">
+                    <Checkbox
+                      checked={step.is_completed}
+                      onCheckedChange={() => handleToggleStep(i)}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-1">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
+                          {i + 1}
+                        </div>
+                       <p
+                        className={`text-lg ${
+                          step.is_completed 
+                            ? "line-through text-zinc-500 dark:text-zinc-500" 
+                            : "text-zinc-700 dark:text-zinc-300"
+                        } cursor-pointer`}
+                        onClick={() => handleToggleStep(i)}
+                      >
+                        {step.text}
+                      </p>
+                      </div>
                     </div>
-                    <p className="text-lg text-zinc-700 dark:text-zinc-300">
-                      {step}
-                    </p>
                   </CardContent>
                 </Card>
               ))

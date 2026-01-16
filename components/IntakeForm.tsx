@@ -16,8 +16,8 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Slider } from "@/components/ui/slider"
 import { generatePath } from "@/actions/generate-path"
+import { updatePathStrategy } from "@/actions/update-path-strategy"
 import { createClient } from "@/utils/supabase/client"
 import { 
   Code2, 
@@ -34,13 +34,19 @@ interface IntakeFormData {
   currentRole: string
   bioContext: string
   mainGoal: string
-  dailyTools: string
-  aiComfortLevel: number
-  startupIdea?: string
+}
+
+interface IntakeFormInitialData {
+  role?: string | null
+  main_goal?: string | null
+  context?: string | null
 }
 
 interface IntakeFormProps {
   onSuccess: () => void;
+  pathId?: string;
+  initialData?: IntakeFormInitialData;
+  showCard?: boolean;
 }
 
 // 🎯 PRE-DEFINED ROLES CONFIGURATION
@@ -53,28 +59,29 @@ const PREDEFINED_ROLES = [
   { id: "other", label: "Other / Custom", icon: MoreHorizontal, value: "custom" },
 ]
 
-export function IntakeForm({ onSuccess }: IntakeFormProps) {
+export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: IntakeFormProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showCustomRole, setShowCustomRole] = useState(false)
+  const isEditMode = !!pathId && !!initialData
 
+  // Initialize form with initialData if provided, otherwise empty
   const form = useForm<IntakeFormData>({
     defaultValues: {
-      currentRole: "",
-      bioContext: "",
-      mainGoal: "",
-      dailyTools: "",
-      aiComfortLevel: 5,
-      startupIdea: "",
+      currentRole: initialData?.role || "",
+      bioContext: initialData?.context || "",
+      mainGoal: initialData?.main_goal || "",
     },
   })
 
   // Watch the current role to update UI selection state
   const currentRoleValue = form.watch("currentRole")
 
-  // Auto-fill from LinkedIn (Only if user hasn't selected anything yet)
+  // Auto-fill from LinkedIn (Only if creating new path, not editing)
   useEffect(() => {
+    if (isEditMode) return // Skip LinkedIn auto-fill when editing
+
     const checkLinkedInData = async () => {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
@@ -87,7 +94,15 @@ export function IntakeForm({ onSuccess }: IntakeFormProps) {
       }
     }
     checkLinkedInData()
-  }, [form])
+  }, [form, isEditMode])
+
+  // Initialize showCustomRole based on whether initial role is in predefined list
+  useEffect(() => {
+    if (isEditMode && initialData?.role) {
+      const isPredefined = PREDEFINED_ROLES.some(role => role.value === initialData.role)
+      setShowCustomRole(!isPredefined)
+    }
+  }, [isEditMode, initialData])
 
   const handleRoleSelect = (value: string) => {
     if (value === "custom") {
@@ -113,17 +128,44 @@ export function IntakeForm({ onSuccess }: IntakeFormProps) {
         return
       }
 
-      const result = await generatePath(data)
-      if (!result.success) {
-        setError(result.error || "Failed to generate upgrade path")
-        setIsSubmitting(false)
-      } else {
-        // Redirect to the new path URL
-        if (result.pathId) {
-          router.push(`/stack/${user.id}/${result.pathId}`)
+      // If editing existing path, use update action
+      if (isEditMode && pathId) {
+        const result = await updatePathStrategy({
+          pathId,
+          ...data
+        })
+        
+        if (!result.success) {
+          setError(result.error || "Failed to update path strategy")
+          setIsSubmitting(false)
         } else {
-          // Fallback to onSuccess callback
-          onSuccess();
+          onSuccess()
+        }
+      } else {
+        // Create new path
+        const result = await generatePath(data)
+        if (!result.success) {
+          setError(result.error || "Failed to generate upgrade path")
+          setIsSubmitting(false)
+        } else {
+          // Redirect to the new path URL using slug-based route
+          if (result.pathId && result.slug) {
+            // Fetch username for the route
+            const { data: profile } = await supabase
+              .from("profiles")
+              .select("username")
+              .eq("user_id", user.id)
+              .maybeSingle()
+            
+            const userUsername = profile?.username || user.id
+            router.push(`/u/${userUsername}/${result.slug}`)
+          } else if (result.pathId) {
+            // Fallback to old route if slug is missing
+            router.push(`/stack/${user.id}/${result.pathId}`)
+          } else {
+            // Fallback to onSuccess callback
+            onSuccess();
+          }
         }
       }
     } catch (err) {
@@ -133,24 +175,14 @@ export function IntakeForm({ onSuccess }: IntakeFormProps) {
     }
   }
 
-  return (
-    <Card className="w-full max-w-2xl border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <CardHeader>
-        <CardTitle className="text-2xl font-light tracking-tight">
-          Tell us about yourself
-        </CardTitle>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Select your role or enter a custom one to get started.
-        </p>
-      </CardHeader>
-      <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-            
-            {/* 1. VISUAL ROLE SELECTOR */}
-            <div className="space-y-3">
-              <FormLabel>What best describes your role?</FormLabel>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+  const formContent = (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+        
+        {/* 1. VISUAL ROLE SELECTOR */}
+        <div className="space-y-3">
+          <FormLabel>What best describes your role?</FormLabel>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {PREDEFINED_ROLES.map((role) => {
                   const Icon = role.icon
                   const isSelected = !showCustomRole && currentRoleValue === role.value
@@ -202,140 +234,107 @@ export function IntakeForm({ onSuccess }: IntakeFormProps) {
                   )}
                 />
               )}
-              {/* Validation error if they try to submit without picking/typing anything */}
-              {!showCustomRole && !currentRoleValue && form.formState.isSubmitted && (
-                 <p className="text-sm font-medium text-red-500">Please select a role</p>
-              )}
-            </div>
-
-            {/* 2. CONTEXT FIELD */}
-            <FormField
-              control={form.control}
-              name="bioContext"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Resume or LinkedIn "About"</FormLabel>
-                  <FormDescription>
-                    Paste your bio or resume to help AI understand your daily tasks.
-                  </FormDescription>
-                  <FormControl>
-                    <Textarea 
-                      placeholder="Paste text here..." 
-                      className="min-h-[120px] font-mono text-sm"
-                      {...field} 
-                      disabled={isSubmitting} 
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* 3. MAIN GOAL */}
-            <FormField
-              control={form.control}
-              name="mainGoal"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Main Goal (Next 6 months)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. Automate reporting" {...field} disabled={isSubmitting} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* 4. SPLIT ROW: TOOLS & COMFORT */}
-            <div className="grid gap-6 md:grid-cols-2">
-                <FormField
-                control={form.control}
-                name="dailyTools"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Daily Tools</FormLabel>
-                    <FormControl>
-                        <Input placeholder="Excel, Jira..." {...field} disabled={isSubmitting} />
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
-                />
-
-                <FormField
-                control={form.control}
-                name="aiComfortLevel"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>AI Comfort: {field.value}/10</FormLabel>
-                    <FormControl>
-                        <Slider
-                        min={0} max={10} step={1}
-                        value={[field.value]}
-                        onValueChange={(value) => field.onChange(value[0])}
-                        disabled={isSubmitting}
-                        className="pt-2"
-                        />
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
-                />
-            </div>
-
-            {/* 5. STARTUP IDEA */}
-            <FormField
-              control={form.control}
-              name="startupIdea"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Startup Idea (Optional)</FormLabel>
-                  <FormControl>
-                    <Textarea 
-                      placeholder="Any business ideas?" 
-                      className="min-h-[80px]"
-                      {...field} 
-                      disabled={isSubmitting} 
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* ERROR MESSAGE */}
-            {error && (
-              <div className="rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/20 dark:text-red-400">
-                {error}
-              </div>
+            {/* Validation error if they try to submit without picking/typing anything */}
+            {!showCustomRole && !currentRoleValue && form.formState.isSubmitted && (
+              <p className="text-sm font-medium text-red-500">Please select a role</p>
             )}
+          </div>
 
-            {/* ACTION BUTTONS */}
-            <div className="flex gap-3 pt-2">
-              <Button 
-                type="button" 
-                variant="outline" 
-                className="w-1/3 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-                onClick={() => {
-                    form.reset();
-                    setShowCustomRole(false);
-                }}
-                disabled={isSubmitting}
-              >
-                Clear
-              </Button>
+          {/* 2. CONTEXT FIELD */}
+          <FormField
+            control={form.control}
+            name="bioContext"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Resume or LinkedIn "About"</FormLabel>
+                <FormDescription>
+                  Paste your bio or resume to help AI understand your daily tasks.
+                </FormDescription>
+                <FormControl>
+                  <Textarea 
+                    placeholder="Paste text here..." 
+                    className="min-h-[120px] font-mono text-sm"
+                    {...field} 
+                    disabled={isSubmitting} 
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-              <Button 
-                type="submit" 
-                size="lg" 
-                className="w-2/3" 
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? "Analyzing..." : "Generate Path"}
-              </Button>
+          {/* 3. MAIN GOAL */}
+          <FormField
+            control={form.control}
+            name="mainGoal"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Main Goal (Next 6 months)</FormLabel>
+                <FormControl>
+                  <Input placeholder="e.g. Automate reporting" {...field} disabled={isSubmitting} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {/* ERROR MESSAGE */}
+          {error && (
+            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/20 dark:text-red-400">
+              {error}
             </div>
-          </form>
-        </Form>
+          )}
+
+          {/* ACTION BUTTONS */}
+          <div className="flex gap-3 pt-2">
+            <Button 
+              type="button" 
+              variant="outline" 
+              className="w-1/3 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              onClick={() => {
+                  form.reset({
+                    currentRole: "",
+                    bioContext: "",
+                    mainGoal: "",
+                  });
+                  setShowCustomRole(false);
+              }}
+              disabled={isSubmitting}
+            >
+              Clear
+            </Button>
+
+            <Button 
+              type="submit" 
+              size="lg" 
+              className="w-2/3" 
+              disabled={isSubmitting}
+            >
+              {isSubmitting 
+                ? (isEditMode ? "Updating..." : "Analyzing...") 
+                : (isEditMode ? "Update Strategy" : "Generate Path")}
+            </Button>
+          </div>
+        </form>
+      </Form>
+    )
+
+  if (!showCard) {
+    return formContent
+  }
+
+  return (
+    <Card className="w-full max-w-2xl border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <CardHeader>
+        <CardTitle className="text-2xl font-light tracking-tight">
+          Tell us about yourself
+        </CardTitle>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Select your role or enter a custom one to get started.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {formContent}
       </CardContent>
     </Card>
   )

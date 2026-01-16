@@ -28,12 +28,29 @@ export async function getUserStack(targetUserId: string) {
     return null
   }
 
-  // 3. Fetch Profile
-  const { data: profile } = await supabase
+  // 3. Fetch Profile (using maybeSingle to handle missing profiles gracefully)
+  // Only select columns that exist in the profiles table
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("current_role, main_goal")
+    .select("full_name, username, is_organization, organization_name, user_id")
     .eq("user_id", targetUserId)
-    .single()
+    .maybeSingle()
+
+  // Debug: Log profile data to verify it's being fetched correctly
+  if (profile) {
+    console.log("🔍 getUserStack - Profile fetched:", {
+      userId: targetUserId,
+      is_organization: profile.is_organization,
+      organization_name: profile.organization_name,
+      full_name: profile.full_name,
+      allFields: profile
+    })
+  } else {
+    console.log("🔍 getUserStack - No profile found:", {
+      userId: targetUserId,
+      error: profileError
+    })
+  }
 
   return { 
     stack: stackItems || [], 

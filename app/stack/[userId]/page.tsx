@@ -5,9 +5,13 @@ import ShareStackButton from "@/components/share-stack-button"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import AddToolSearch from "@/components/add-tool-search"
-import { BookOpen, Wrench, GraduationCap, CheckCircle2, Clock, ListTodo } from "lucide-react"
+import { BookOpen, Wrench, GraduationCap, CheckCircle2, Clock, ListTodo, Target } from "lucide-react"
 import { Metadata } from "next"
 import ResourceIcon from "@/components/resource-icon"
+import { HVQScoreboard } from "@/components/hvq-scoreboard"
+import { Card, CardContent } from "@/components/ui/card"
+import { DeletePathButton } from "@/components/delete-path-button"
+import { TogglePathVisibility } from "@/components/toggle-path-visibility"
 
 interface PageProps {
   params: Promise<{ userId: string }>
@@ -16,16 +20,24 @@ interface PageProps {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { userId } = await params
   
-  // Fetch user profile simply to get their name/role
+  // Fetch user profile simply to get their name
   const supabase = await createClient()
   const { data: profile } = await supabase
     .from("profiles")
-    .select("current_role")
+    .select("full_name, is_organization, organization_name")
     .eq("user_id", userId)
-    .single()
+    .maybeSingle()
 
-  const title = `${profile?.current_role || "Founder"}'s AI Stack`
-  const description = "Check out my curated list of AI tools and learning resources."
+  // Determine display text based on organization status
+  // If profile is null, it means the user hasn't completed their profile yet
+  const displayName = profile?.is_organization && profile?.organization_name
+    ? profile.organization_name
+    : profile?.full_name || "Founder"
+  const stackLabel = profile?.is_organization ? "Company Stack" : "AI Stack"
+  const title = `${displayName}'s ${stackLabel}`
+  const description = profile?.is_organization 
+    ? "Check out our curated list of AI tools and learning resources."
+    : "Check out my curated list of AI tools and learning resources."
 
   return {
     title: title,
@@ -45,24 +57,67 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function PublicStackPage({ params }: PageProps) {
-  // 1. Setup & Fetch
+  // STEP 1: Auth First - Always get current user from auth first
   const { userId } = await params
+  const supabase = await createClient()
+  const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser()
+  const isOwner = currentUser?.id === userId
+  
+  // STEP 2: Fetch stack data (uses userId from params, which is fine for viewing)
   const data = await getUserStack(userId)
   const stack = data?.stack || []
-  const profile = data?.profile
+  const profile = data?.profile // May be null
+  const paths = data?.paths || []
   
-  const supabase = await createClient()
-  const { data: { user: currentUser } } = await supabase.auth.getUser()
-  const isOwner = currentUser?.id === userId
+  // STEP 3: Fail-Safe - If profile is null but we have auth user, use user metadata
+  // Only use this for display purposes when viewing own stack
+  let displayProfile: any = profile
+  
+  // Debug: Log profile data to verify organization_name is being fetched
+  console.log("🔍 Dashboard - Profile Data:", {
+    userId: userId,
+    profile: profile,
+    profileKeys: profile ? Object.keys(profile) : null,
+    hasOrganization: profile?.is_organization,
+    organizationName: profile?.organization_name,
+    fullName: profile?.full_name,
+    rawProfile: JSON.stringify(profile)
+  })
+  
+  // If profile exists, use it directly (this ensures organization_name is available)
+  if (profile) {
+    displayProfile = profile
+  } else if (isOwner && currentUser) {
+    // Create a fallback profile object from user metadata only if profile doesn't exist
+    // Using 'any' type because this is a partial fallback for display only
+    displayProfile = {
+      full_name: currentUser.user_metadata?.full_name || 
+                 currentUser.user_metadata?.name || 
+                 currentUser.email?.split('@')[0] || 
+                 "User",
+      is_organization: false,
+      organization_name: null,
+      user_id: currentUser.id,
+      main_goal: null,
+      current_hvq_score: null,
+      previous_hvq_score: null,
+      username: null
+    }
+    console.log("🔍 Dashboard - Profile is null, using auth fallback:", {
+      userId: currentUser.id,
+      displayProfile: displayProfile,
+      userMetadata: currentUser.user_metadata
+    })
+  }
 
   // 2. Handle Empty State
   if (stack.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] text-center px-4">
         <h1 className="text-2xl font-bold mb-4">Empty Stack 📭</h1>
-        <p className="text-zinc-500 mb-6">This user hasn't curated their AI stack yet.</p>
+        <p className="text-zinc-500 mb-6">This {data?.profile?.is_organization ? "organization" : "user"} hasn't curated their AI stack yet.</p>
         <Link href="/">
-          <Button>Generate My Stack</Button>
+          <Button>{data?.profile?.is_organization ? "Generate Company Stack" : "Generate My Stack"}</Button>
         </Link>
       </div>
     )
@@ -93,20 +148,34 @@ const tools = stack.filter((i: any) => i.resource.type !== 'human_course')
       {/* HEADER */}
       <div className="text-center mb-12">
         <h1 className="text-4xl font-extrabold mb-2">
-          {profile?.current_role || "Founder"}'s Stack
+          {(() => {
+            // Use displayProfile (which has fallback) instead of profile
+            const displayName = displayProfile?.is_organization && displayProfile?.organization_name
+              ? displayProfile.organization_name
+              : displayProfile?.full_name || "Founder"
+            const stackType = displayProfile?.is_organization ? "Company Stack" : "Stack"
+            return `${displayName}'s ${stackType}`
+          })()}
         </h1>
         
         {isOwner && (
           <>
             <div className="hide-on-export mt-4 flex flex-col items-center gap-2">
               <span className="text-green-600 text-xs font-medium bg-green-50 px-3 py-1 rounded-full border border-green-100">
-                ✅ You are viewing your public page
+                ✅ You are viewing your {displayProfile?.is_organization ? "company's" : ""} public page
               </span>
             </div>
 
             <div className="flex justify-center gap-3 mt-6 mb-10">
-              <ShareStackButton userId={userId} userName={profile?.current_role || "User"} />
-              <Link href="/">
+              <ShareStackButton 
+                userId={userId} 
+                userName={
+                  (displayProfile?.is_organization && displayProfile?.organization_name)
+                    ? displayProfile.organization_name
+                    : displayProfile?.full_name || "User"
+                } 
+              />
+              <Link href={`/stack/${userId}/create`}>
                 <Button variant="outline" className="rounded-full">+ New Path</Button>
               </Link>
             </div>
@@ -118,7 +187,191 @@ const tools = stack.filter((i: any) => i.resource.type !== 'human_course')
         )}
       </div>
 
+      {/* HVQ Scoreboard */}
+      {isOwner && profile && <HVQScoreboard stack={stack} paths={paths} profile={profile || undefined} />}
+
       <div className="space-y-20">
+        
+        {/* --- SECTION 0: YOUR/COMPANY UPGRADE PATHS --- */}
+        {paths.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 mb-8 border-b pb-4">
+              <Target className="w-6 h-6 text-zinc-400" />
+              <h2 className="text-2xl font-bold text-zinc-900">
+                {displayProfile?.is_organization ? "Company Upgrade Paths" : "Your Upgrade Paths"}
+              </h2>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {paths.map((path: any) => {
+                // Get path_title or fallback to main_goal
+                const displayTitle = path.path_title || path.main_goal || "Untitled Path"
+                const createdDate = new Date(path.created_at)
+                const formattedDate = createdDate.toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric', 
+                  year: 'numeric' 
+                })
+                
+                // Get score and determine styling
+                const score = path.hvq_score ?? null
+                const hasScore = score !== null
+                const displayScore = score ?? 100 // Default for calculations
+                
+                // Calculate daily trend change
+                const previousScore = path.previous_hvq_score ?? null
+                let dailyChangePercent = null
+                if (hasScore && previousScore !== null && previousScore > 0) {
+                  // Calculate percentage change from previous score
+                  const change = ((displayScore - previousScore) / previousScore) * 100
+                  dailyChangePercent = Math.round(change * 10) / 10 // Round to 1 decimal
+                } else if (hasScore && path.updated_at) {
+                  // Estimate daily change based on time since creation
+                  // This is a placeholder - ideally we'd have historical data
+                  const updatedAt = new Date(path.updated_at)
+                  const createdAt = new Date(path.created_at)
+                  const daysSinceCreation = Math.max(1, Math.floor((updatedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24)))
+                  if (daysSinceCreation > 0 && displayScore > 100) {
+                    // Estimate improvement rate (placeholder calculation)
+                    const estimatedDailyChange = (displayScore - 100) / daysSinceCreation
+                    dailyChangePercent = Math.round(estimatedDailyChange * 10) / 10
+                  }
+                }
+                
+                // Determine score badge color and label
+                let scoreBadgeClass = ""
+                let scoreLabel = ""
+                let scoreLabelClass = "text-zinc-500 dark:text-zinc-400"
+                
+                if (hasScore) {
+                  if (displayScore < 120) {
+                    scoreBadgeClass = "bg-red-100 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800"
+                    scoreLabel = "Manual/Low Leverage"
+                    scoreLabelClass = "text-red-600 dark:text-red-400"
+                  } else if (displayScore >= 120 && displayScore <= 150) {
+                    scoreBadgeClass = "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-950/30 dark:text-yellow-400 dark:border-yellow-800"
+                    scoreLabel = "Optimizing"
+                    scoreLabelClass = "text-yellow-600 dark:text-yellow-400"
+                  } else {
+                    scoreBadgeClass = "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800"
+                    scoreLabel = "High Leverage"
+                    scoreLabelClass = "text-emerald-600 dark:text-emerald-400"
+                  }
+                }
+                
+                // Check if high priority (low score AND high importance_weight)
+                const importanceWeight = path.importance_weight ?? 0
+                const isHighPriority = hasScore && displayScore < 120 && importanceWeight > 7
+                
+                // Add warning border for low leverage paths
+                const isLowLeverage = hasScore && displayScore < 120
+                
+                return (
+                  <Link key={path.id} href={`/stack/${userId}/${path.id}`}>
+                    <Card className={`h-full hover:shadow-lg transition-shadow cursor-pointer relative ${
+                      isLowLeverage 
+                        ? 'border-2 border-red-300 hover:border-red-400 dark:border-red-700 dark:hover:border-red-600' 
+                        : 'border-zinc-200 hover:border-zinc-300'
+                    }`}>
+                      <CardContent className="p-6">
+                        <div className="flex flex-col h-full">
+                          {/* Action Buttons - Only show for owner */}
+                          {isOwner && (
+                            <div className="flex gap-2 mb-3">
+                              <TogglePathVisibility pathId={path.id} initialIsPublic={path.is_public || false} />
+                              <DeletePathButton pathId={path.id} />
+                            </div>
+                          )}
+                          
+                          {/* Header with Score Badge */}
+                          <div className="mb-3 relative">
+                            {/* Score Badge - Top Right */}
+                            {score !== null && (
+                              <div className={`absolute top-0 right-0 px-2 py-1 rounded-full text-xs font-semibold border ${scoreBadgeClass}`}>
+                                {score}
+                              </div>
+                            )}
+                            
+                            {/* High Priority Tag */}
+                            {isHighPriority && (
+                              <div className="absolute top-0 left-0 px-2 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-800">
+                                High Priority
+                              </div>
+                            )}
+                            
+                            <div className={`text-xs text-zinc-500 dark:text-zinc-400 mb-2 ${isHighPriority ? 'mt-8' : ''}`}>
+                              {formattedDate}
+                            </div>
+                            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 line-clamp-2 pr-16">
+                              {displayTitle}
+                            </h3>
+                            {/* Score Label */}
+                            {hasScore && (
+                              <div className={`text-[10px] mt-1 ${scoreLabelClass}`}>
+                                {scoreLabel}
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="mt-auto pt-4 border-t border-zinc-100 dark:border-zinc-800">
+                            <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+                              View Path
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            </div>
+                            {path.efficiency_audit ? (
+                              <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-2">
+                                ✓ Ready
+                              </div>
+                            ) : (
+                              <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
+                                ⏳ Generating...
+                              </div>
+                            )}
+                            
+                            {/* Daily Trend Change Indicator */}
+                            {hasScore && dailyChangePercent !== null && (
+                              <div className="mt-3 flex items-center gap-2">
+                                <div className={`flex items-center gap-1 text-xs font-semibold ${
+                                  dailyChangePercent > 0 
+                                    ? 'text-emerald-600 dark:text-emerald-400' 
+                                    : dailyChangePercent < 0 
+                                    ? 'text-red-600 dark:text-red-400' 
+                                    : 'text-zinc-500 dark:text-zinc-400'
+                                }`}>
+                                  {dailyChangePercent > 0 ? (
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                    </svg>
+                                  ) : dailyChangePercent < 0 ? (
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14" />
+                                    </svg>
+                                  )}
+                                  <span>
+                                    {dailyChangePercent > 0 ? '+' : ''}{dailyChangePercent}%
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                                  daily
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                )
+              })}
+            </div>
+          </section>
+        )}
         
         {/* --- SECTION 1: AI TOOLS --- */}
         {tools.length > 0 && (

@@ -16,14 +16,15 @@ export default async function Image({ params }: { params: Promise<{ userId: stri
   
   const { data: profile } = await supabase
     .from("profiles")
-    .select("current_role")
+    .select("full_name, organization_name, is_organization")
     .eq("user_id", userId)
-    .single()
+    .maybeSingle()
 
-  // Format the role name (e.g., "founder" -> "Founder")
-  const roleRaw = profile?.current_role || "Founder"
-  const role = roleRaw.charAt(0).toUpperCase() + roleRaw.slice(1)
-  const title = `${role}'s AI Stack`
+  // Use organization name or full name, fallback to "Founder"
+  const displayName = profile?.is_organization && profile?.organization_name
+    ? profile.organization_name
+    : profile?.full_name || "Founder"
+  const title = `${displayName}'s AI Stack`
 
   // 2. Draw the image using JSX
   return new ImageResponse(

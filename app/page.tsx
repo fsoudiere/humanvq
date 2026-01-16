@@ -63,23 +63,9 @@ export default function Home() {
         return
       }
 
-      // Check if upgrade_paths exists - redirect to latest path if found
-      const { data: upgradePath, error: upgradeError } = await supabase
-        .from("upgrade_paths")
-        .select("id")
-        .eq("user_id", session.user.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (!upgradeError && upgradePath && upgradePath.id) {
-        // Redirect to the latest path
-        router.push(`/stack/${session.user.id}/${upgradePath.id}`)
-        return
-      }
-
-      // No path found - show intake form
-      setState("intake")
+      // Redirect to main portfolio hub
+      router.push(`/stack/${session.user.id}`)
+      return
     }
 
     checkStatus()
