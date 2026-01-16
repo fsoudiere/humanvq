@@ -166,6 +166,65 @@ export async function generatePath(
     }
 
     // =========================================================
+    // 💾 INSERT INTO path_resources TABLE
+    // =========================================================
+    // Insert ai_tools into path_resources with status 'suggested'
+    if (verifiedTools.length > 0) {
+      const toolInserts = verifiedTools
+        .map((tool: any) => ({
+          path_id: pathId,
+          resource_id: tool.id,
+          status: "suggested",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }))
+        .filter((item: any) => item.resource_id) // Only include items with resource_id
+
+      if (toolInserts.length > 0) {
+        const { error: toolsError } = await supabase
+          .from("path_resources")
+          .upsert(toolInserts, {
+            onConflict: "path_id,resource_id",
+            ignoreDuplicates: false
+          })
+
+        if (toolsError) {
+          console.error("❌ Failed to insert ai_tools into path_resources:", toolsError)
+        } else {
+          console.log(`✅ Inserted ${toolInserts.length} tools into path_resources`)
+        }
+      }
+    }
+
+    // Insert human_courses into path_resources with status 'suggested'
+    if (verifiedCourses.length > 0) {
+      const courseInserts = verifiedCourses
+        .map((course: any) => ({
+          path_id: pathId,
+          resource_id: course.id,
+          status: "suggested",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }))
+        .filter((item: any) => item.resource_id) // Only include items with resource_id
+
+      if (courseInserts.length > 0) {
+        const { error: coursesError } = await supabase
+          .from("path_resources")
+          .upsert(courseInserts, {
+            onConflict: "path_id,resource_id",
+            ignoreDuplicates: false
+          })
+
+        if (coursesError) {
+          console.error("❌ Failed to insert human_courses into path_resources:", coursesError)
+        } else {
+          console.log(`✅ Inserted ${courseInserts.length} courses into path_resources`)
+        }
+      }
+    }
+
+    // =========================================================
     // 🚀 SEND TO N8N
     // =========================================================
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK

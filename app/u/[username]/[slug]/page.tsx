@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Bot, GraduationCap, Footprints, Calendar, Settings, Plus, LogOut } from "lucide-react"
+import { Bot, GraduationCap, Footprints, Calendar, Settings, LogOut, Target, Plus } from "lucide-react"
 import ResourceIcon from "@/components/resource-icon"
 import { createClient } from "@/utils/supabase/client"
 import StackManager from "@/components/stack-manager"
@@ -14,8 +14,9 @@ import { IntakeForm } from "@/components/IntakeForm"
 import { EditablePathTitle } from "@/components/editable-path-title"
 import { DeletePathButton } from "@/components/delete-path-button"
 import { SharePathButton } from "@/components/share-path-button"
+import AddToolSearch from "@/components/add-tool-search"
 import Link from "next/link"
-import { Target } from "lucide-react"
+// StackManager now handles all resource management via updateResourceStatus
 
 // Define the shape of a delegate task item
 interface DelegateTaskItem {
@@ -38,6 +39,8 @@ interface ResourceItem {
   url?: string
   capabilities?: string[]
   difficulty_level?: number
+  hvq_score_machine?: number
+  hvq_score_human?: number
 }
 
 interface UpgradePathData {
@@ -45,10 +48,10 @@ interface UpgradePathData {
     delegate_to_machine?: DelegateTaskItem[]
     keep_for_human?: string[]
   }
-  ai_tools?: ResourceItem[]
-  human_courses?: ResourceItem[]
+  // Note: ai_tools and human_courses are now fetched from path_resources (relational)
+  // They are stored in pathResourcesList state, not in this interface
   immediate_steps?: ImmediateStepItem[]
-  hvq_score?: number
+  current_hvq_score?: number
 }
 
 type AppState = "loading" | "analyzing" | "results" | "error"
@@ -127,10 +130,20 @@ export default function UnifiedPathPage() {
     organization_name: string | null
   } | null>(null)
 
+  // Path-specific tool management
+  const [pathResources, setPathResources] = useState<Record<string, string>>({}) // resourceId -> status (added/removed)
+  const [pathResourceWeights, setPathResourceWeights] = useState<Record<string, number>>({}) // resourceId -> impact_weight
+  const [userStackStatus, setUserStackStatus] = useState<Record<string, string>>({}) // resourceId -> status (paying/free_user/wishlist/etc)
+  const [pathResourcesList, setPathResourcesList] = useState<{
+    ai_tools: ResourceItem[]
+    human_courses: ResourceItem[]
+  }>({ ai_tools: [], human_courses: [] })
+
   // Edit Strategy Dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false)
 
   // Calculate HVQ score based on current state
+  // Now includes weighted resource leverage based on status
   const calculateHVQScore = (data: UpgradePathData): number => {
     const BASE_SCORE = 100
     
@@ -144,7 +157,24 @@ export default function UnifiedPathPage() {
     ).length
     const delegatePoints = completedDelegateTasks * 10
     
-    return BASE_SCORE + stepPoints + delegatePoints
+    // Calculate resource leverage points using relational data from path_resources
+    // Loop through path_resources array and use impact_weight from the database
+    let resourcePoints = 0
+    if (pathResourcesList.ai_tools || pathResourcesList.human_courses) {
+      const allResources = [...(pathResourcesList.ai_tools || []), ...(pathResourcesList.human_courses || [])]
+      allResources.forEach((resource) => {
+        if (resource.id) {
+          // Get impact_weight from path_resources table (stored in pathResourceWeights state)
+          const impactWeight = pathResourceWeights[resource.id] || 0
+          // Use hvq_score_machine for AI tools, hvq_score_human for courses
+          const leverage = resource.hvq_score_machine || resource.hvq_score_human || 0
+          // The Math: resourcePoints += (resource.hvq_score_machine || resource.hvq_score_human || 0) * item.impact_weight
+          resourcePoints += leverage * impactWeight
+        }
+      })
+    }
+    
+    return BASE_SCORE + stepPoints + delegatePoints + Math.round(resourcePoints)
   }
 
   useEffect(() => {
@@ -167,11 +197,11 @@ export default function UnifiedPathPage() {
     const fetchPath = async () => {
       const supabase = createClient()
       
-      // Get current user
+      // Get current user for ownership check
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUserId(user?.id || null)
 
-      // Fetch profile by username
+      // STEP 1: Fetch profile by username from URL
       const { data: profile } = await supabase
         .from("profiles")
         .select("user_id, full_name, username, is_organization, organization_name")
@@ -191,14 +221,28 @@ export default function UnifiedPathPage() {
         organization_name: profile.organization_name
       })
 
-      // Check ownership
-      const ownerCheck = user && user.id === profile.user_id
-      setIsOwner(ownerCheck || false)
-
-      // Fetch path by slug and user_id
+      // STEP 2: Fetch path with nested path_resources and resources
+      // Using explicit column names: hvq_score_machine, hvq_score_human, impact_weight, and current_hvq_score
+      // Note: current_hvq_score is persisted after status updates in actions/path-resources.ts
       const { data: path, error: pathError } = await supabase
         .from("upgrade_paths")
-        .select("*")
+        .select(`
+          *,
+          path_resources (
+            status,
+            impact_weight,
+            resources (
+              id,
+              name,
+              type,
+              description,
+              url,
+              logo_url,
+              hvq_score_machine,
+              hvq_score_human
+            )
+          )
+        `)
         .eq("slug", slug)
         .eq("user_id", profile.user_id)
         .maybeSingle()
@@ -211,6 +255,74 @@ export default function UnifiedPathPage() {
 
       setPathId(path.id)
       setIsPublic(path.is_public || false)
+
+      // Check ownership: auth.user.id === path.user_id
+      const ownerCheck = user && user.id === path.user_id
+      setIsOwner(ownerCheck || false)
+
+      // Process path_resources: filter out removed and separate by type
+      if (path.path_resources && Array.isArray(path.path_resources)) {
+        // UI Filter: Only render items where status !== 'removed'
+        const visiblePathResources = path.path_resources.filter(
+          (pr: any) => pr.status !== 'removed'
+        )
+
+        // Build status map, weight map, and separate by type
+        const pathResourcesMap: Record<string, string> = {}
+        const pathResourceWeightsMap: Record<string, number> = {}
+        const aiTools: ResourceItem[] = []
+        const humanCourses: ResourceItem[] = []
+
+        visiblePathResources.forEach((pr: any) => {
+          // Access resources from the nested structure
+          const resource = pr.resources
+          if (resource && resource.id) {
+            pathResourcesMap[resource.id] = pr.status
+            // Store impact_weight from path_resources table
+            pathResourceWeightsMap[resource.id] = pr.impact_weight || 0
+
+            const resourceItem: ResourceItem = {
+              id: resource.id,
+              title: resource.name,
+              description: resource.description || "",
+              url: resource.url,
+              logo_url: resource.logo_url,
+              hvq_score_machine: resource.hvq_score_machine,
+              hvq_score_human: resource.hvq_score_human,
+            }
+
+            // Logic Separation: Split by type
+            // Tools: item.resources.type === 'ai_tool'
+            if (resource.type === "ai_tool") {
+              aiTools.push(resourceItem)
+            }
+            // Courses: item.resources.type === 'human_course'
+            else if (resource.type === "human_course") {
+              humanCourses.push(resourceItem)
+            }
+          }
+        })
+
+        setPathResources(pathResourcesMap)
+        setPathResourceWeights(pathResourceWeightsMap)
+        setPathResourcesList({ ai_tools: aiTools, human_courses: humanCourses })
+      }
+
+      // Fetch user_stacks (to check if tools are "In Stack") - only for owners
+      if (ownerCheck && user) {
+        const { data: userStackData } = await supabase
+          .from("user_stacks")
+          .select("resource_id, status")
+          .eq("user_id", user.id)
+
+        if (userStackData) {
+          const userStackMap: Record<string, string> = {}
+          userStackData.forEach((us: any) => {
+            userStackMap[us.resource_id] = us.status
+          })
+          setUserStackStatus(userStackMap)
+        }
+      }
 
       // If not owner and not public, show 404
       if (!ownerCheck && !path.is_public) {
@@ -227,7 +339,7 @@ export default function UnifiedPathPage() {
       })
 
       setPathTitle(path.path_title || path.main_goal || "Untitled Path")
-      setCurrentHvqScore(path.current_hvq_score || path.hvq_score || null)
+      setCurrentHvqScore(path.current_hvq_score || null)
 
       // Check if path is ready (has efficiency_audit)
       if (path.efficiency_audit) {
@@ -235,32 +347,26 @@ export default function UnifiedPathPage() {
           const efficiency = typeof path.efficiency_audit === 'string' 
             ? JSON.parse(path.efficiency_audit) 
             : path.efficiency_audit
-          
-          const aiTools = typeof path.ai_tools === 'string'
-            ? JSON.parse(path.ai_tools)
-            : path.ai_tools
-
-          const humanCourses = typeof path.human_courses === 'string'
-            ? JSON.parse(path.human_courses)
-            : path.human_courses
 
           const immediateSteps = typeof path.immediate_steps === 'string'
             ? JSON.parse(path.immediate_steps)
             : path.immediate_steps
 
+          // Tools and courses are now fetched from path_resources (relational)
+          // They're already stored in pathResourcesList from the fetch above
           const pathData = {
             efficiency_audit: efficiency,
-            ai_tools: aiTools,
-            human_courses: humanCourses,
             immediate_steps: immediateSteps,
-            hvq_score: path.hvq_score || null
+            current_hvq_score: path.current_hvq_score || null
           }
 
-          const hvqScore = pathData.hvq_score ?? calculateHVQScore(pathData)
+          // Use current_hvq_score from database (no calculation needed - score is persisted)
+          // Fallback to calculated score only if current_hvq_score is not available
+          const hvqScore = path.current_hvq_score ?? calculateHVQScore(pathData)
 
           setUpgradeData({
             ...pathData,
-            hvq_score: hvqScore
+            current_hvq_score: hvqScore
           })
           
           setState("results")
@@ -305,9 +411,26 @@ export default function UnifiedPathPage() {
       pollCount++
       console.log(`📡 Polling Attempt ${pollCount}/${maxPolls}...`)
 
+      // Using explicit column names: hvq_score_machine, hvq_score_human, impact_weight, and current_hvq_score
       const { data: upgradePath, error } = await supabase
         .from("upgrade_paths")
-        .select("*")
+        .select(`
+          *,
+          path_resources (
+            status,
+            impact_weight,
+            resources (
+              id,
+              name,
+              type,
+              description,
+              url,
+              logo_url,
+              hvq_score_machine,
+              hvq_score_human
+            )
+          )
+        `)
         .eq("id", pathId)
         .maybeSingle()
 
@@ -316,14 +439,6 @@ export default function UnifiedPathPage() {
           const efficiency = typeof upgradePath.efficiency_audit === 'string' 
             ? JSON.parse(upgradePath.efficiency_audit) 
             : upgradePath.efficiency_audit
-          
-          const aiTools = typeof upgradePath.ai_tools === 'string'
-            ? JSON.parse(upgradePath.ai_tools)
-            : upgradePath.ai_tools
-
-          const humanCourses = typeof upgradePath.human_courses === 'string'
-            ? JSON.parse(upgradePath.human_courses)
-            : upgradePath.human_courses
 
           const immediateSteps = typeof upgradePath.immediate_steps === 'string'
             ? JSON.parse(upgradePath.immediate_steps)
@@ -331,20 +446,68 @@ export default function UnifiedPathPage() {
 
           const pathData = {
             efficiency_audit: efficiency,
-            ai_tools: aiTools,
-            human_courses: humanCourses,
             immediate_steps: immediateSteps,
-            hvq_score: upgradePath.hvq_score || null
+            current_hvq_score: upgradePath.current_hvq_score ?? null
           }
 
-          const hvqScore = pathData.hvq_score ?? calculateHVQScore(pathData)
+          // Use current_hvq_score from database (no calculation needed - score is persisted)
+          // Fallback to calculated score only if current_hvq_score is not available
+          const hvqScore = upgradePath.current_hvq_score ?? calculateHVQScore(pathData)
 
           setUpgradeData({
             ...pathData,
-            hvq_score: hvqScore
+            current_hvq_score: hvqScore
           })
           
-          setCurrentHvqScore(upgradePath.current_hvq_score || hvqScore)
+          // Process path_resources: filter out removed and separate by type
+          if (upgradePath.path_resources && Array.isArray(upgradePath.path_resources)) {
+            // UI Filter: Only render items where status !== 'removed'
+            const visiblePathResources = upgradePath.path_resources.filter(
+              (pr: any) => pr.status !== 'removed'
+            )
+
+            const pathResourcesMap: Record<string, string> = {}
+            const pathResourceWeightsMap: Record<string, number> = {}
+            const aiTools: ResourceItem[] = []
+            const humanCourses: ResourceItem[] = []
+
+            visiblePathResources.forEach((pr: any) => {
+              // Access resources from the nested structure
+              const resource = pr.resources
+              if (resource && resource.id) {
+                pathResourcesMap[resource.id] = pr.status
+                // Store impact_weight from path_resources table
+                pathResourceWeightsMap[resource.id] = pr.impact_weight || 0
+
+                const resourceItem: ResourceItem = {
+                  id: resource.id,
+                  title: resource.name,
+                  description: resource.description || "",
+                  url: resource.url,
+                  logo_url: resource.logo_url,
+                  hvq_score_machine: resource.hvq_score_machine,
+                  hvq_score_human: resource.hvq_score_human,
+                }
+
+                // Logic Separation: Split by type
+                // Tools: item.resources.type === 'ai_tool'
+                if (resource.type === "ai_tool") {
+                  aiTools.push(resourceItem)
+                }
+                // Courses: item.resources.type === 'human_course'
+                else if (resource.type === "human_course") {
+                  humanCourses.push(resourceItem)
+                }
+              }
+            })
+
+            setPathResources(pathResourcesMap)
+            setPathResourceWeights(pathResourceWeightsMap)
+            setPathResourcesList({ ai_tools: aiTools, human_courses: humanCourses })
+          }
+          
+          // Use current_hvq_score from database (persisted after status updates)
+          setCurrentHvqScore(upgradePath.current_hvq_score ?? hvqScore)
           setState("results")
           setIsPolling(false)
         } catch (e) {
@@ -367,12 +530,12 @@ export default function UnifiedPathPage() {
   }, [state, isPolling, isOwner, pathId])
 
   const handleNewPath = () => {
-    if (!currentUserId) return
+    if (!username) return
     setIsPolling(false)
     setState("results")
     setUpgradeData(null)
     setErrorMessage(null)
-    router.push(`/stack/${currentUserId}/create`)
+    router.push(`/u/${username}/create`)
   }
 
   const handleStrategyUpdate = async () => {
@@ -426,7 +589,7 @@ export default function UnifiedPathPage() {
       const payload = {
         immediate_steps: updatedData.immediate_steps ?? [],
         efficiency_audit: updatedEfficiencyAudit,
-        hvq_score: updatedData.hvq_score ?? calculateHVQScore(updatedData),
+        current_hvq_score: updatedData.current_hvq_score ?? calculateHVQScore(updatedData),
         updated_at: new Date().toISOString()
       }
 
@@ -466,11 +629,11 @@ export default function UnifiedPathPage() {
     }
 
     const newScore = calculateHVQScore(updatedData)
-    setUpgradeData({ ...updatedData, hvq_score: newScore })
+    setUpgradeData({ ...updatedData, current_hvq_score: newScore })
     setCurrentHvqScore(newScore)
 
     try {
-      await updatePathInSupabase({ ...updatedData, hvq_score: newScore })
+      await updatePathInSupabase({ ...updatedData, current_hvq_score: newScore })
     } catch (error) {
       console.error("Failed to update delegate task, reverting:", error)
       setUpgradeData(previousData)
@@ -491,11 +654,11 @@ export default function UnifiedPathPage() {
     }
 
     const newScore = calculateHVQScore(updatedData)
-    setUpgradeData({ ...updatedData, hvq_score: newScore })
+    setUpgradeData({ ...updatedData, current_hvq_score: newScore })
     setCurrentHvqScore(newScore)
 
     try {
-      await updatePathInSupabase({ ...updatedData, hvq_score: newScore })
+      await updatePathInSupabase({ ...updatedData, current_hvq_score: newScore })
     } catch (error) {
       console.error("Failed to update immediate step, reverting:", error)
       setUpgradeData(previousData)
@@ -807,62 +970,148 @@ export default function UnifiedPathPage() {
         </section>
 
         {/* The Power Pack - AI Tools */}
-        {upgradeData?.ai_tools && upgradeData.ai_tools.length > 0 && (
-          <section className="mb-16">
-            <div className="mb-8 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                <Bot className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+        {pathResourcesList.ai_tools && pathResourcesList.ai_tools.length > 0 && (() => {
+          // Tools are already filtered (status != 'removed') from the fetch
+          const visibleTools = pathResourcesList.ai_tools
+
+          if (visibleTools.length === 0) return null
+
+          return (
+            <section className="mb-16">
+              <div className="mb-8 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                    <Bot className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <h2 className="text-3xl font-light tracking-tight text-black dark:text-zinc-50">
+                    Top 3 AI Tools
+                  </h2>
+                </div>
+                {isOwner && currentUserId && (
+                  <AddToolSearch userId={currentUserId} />
+                )}
               </div>
-              <h2 className="text-3xl font-light tracking-tight text-black dark:text-zinc-50">
-                Top 3 AI Tools
-              </h2>
-            </div>
-            <div className="grid gap-6 md:grid-cols-3">
-              {upgradeData.ai_tools.map((tool, i) => (
-                <Card key={i} className={isOwner ? "group transition-all hover:border-blue-200 hover:shadow-md dark:hover:border-blue-800" : "border-zinc-200 dark:border-zinc-800"}>
-                  <CardHeader>
-                    <div className="shrink-0 mt-1">
-                      <ResourceIcon 
-                        logo_url={tool.id ? resourceLogos[tool.id] : undefined}
-                        url={tool.url}
-                        name={tool.title}
-                        className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
-                      />
-                    </div>
-                    <CardTitle className="text-lg">{tool.title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
-                      {tool.description}
-                    </p>
-                    {tool.capabilities && tool.capabilities.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {tool.capabilities.slice(0, 3).map((cap: string, i: number) => (
-                          <span key={i} className="text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-2 py-1 rounded-sm border border-gray-200">
-                            {cap}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {tool.url && (
-                      <a href={tool.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">
-                        View Tool →
-                      </a>
-                    )}
-                    {isOwner && tool.id && tool.id !== 'null' && (
-                      <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
-                        <StackManager resourceId={tool.id} />
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </section>
-        )}
+              <div className="grid gap-6 md:grid-cols-3">
+                {visibleTools.map((tool, i) => {
+                  const toolId = tool.id && tool.id !== 'null' ? tool.id : null
+                  const pathResourceStatus = toolId ? (pathResources[toolId] || 'suggested') : 'suggested'
+                  const stackStatus = toolId ? userStackStatus[toolId] : null
+                  
+                  // Unified status system
+                  const isRemoved = pathResourceStatus === 'removed'
+                  
+                  // Don't render if removed
+                  if (isRemoved) return null
+
+                  // Callback to refresh data after status change
+                  // Reactive UI: Update local state for impact_weight so the score badge updates immediately
+                  const handleStatusChange = (newStatus?: string) => {
+                    // Define weights mapping (must match actions/path-resources.ts)
+                    const weights: Record<string, number> = {
+                      suggested: 0.5,
+                      added_free: 1.0,
+                      added_enrolled: 1.0,
+                      added_paid: 1.5,
+                      added_completed: 1.5,
+                      wishlisted: 0.2,
+                      removed: 0
+                    }
+                    
+                    // Update impact_weight in local state immediately (reactive UI)
+                    if (toolId && newStatus) {
+                      // Update pathResources state with new status
+                      setPathResources(prev => ({
+                        ...prev,
+                        [toolId]: newStatus
+                      }))
+                      
+                      // Update impact_weight based on new status
+                      const newWeight = weights[newStatus] || 0
+                      setPathResourceWeights(prev => ({
+                        ...prev,
+                        [toolId]: newWeight
+                      }))
+                    }
+                    
+                    // Recalculate HVQ score with updated weights
+                    const newScore = calculateHVQScore({
+                      ...upgradeData!,
+                      current_hvq_score: undefined
+                    })
+                    setUpgradeData(prev => prev ? { ...prev, current_hvq_score: newScore } : null)
+                    setCurrentHvqScore(newScore)
+                    router.refresh()
+                  }
+
+                  // Map path status to user_stacks status for initial display
+                  const getInitialStackStatus = () => {
+                    if (pathResourceStatus === 'added_paid') return 'paying'
+                    if (pathResourceStatus === 'added_free') return 'free_user'
+                    if (pathResourceStatus === 'wishlisted') return 'wishlist'
+                    return stackStatus || undefined
+                  }
+
+                  return (
+                    <Card key={i} className={`relative ${isOwner ? "group transition-all hover:border-blue-200 hover:shadow-md dark:hover:border-blue-800" : "border-zinc-200 dark:border-zinc-800"}`}>
+                      <CardHeader>
+                        <div className="shrink-0 mt-1">
+                          <ResourceIcon 
+                            logo_url={toolId ? resourceLogos[toolId] : undefined}
+                            url={tool.url}
+                            name={tool.title}
+                            className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <CardTitle className="text-lg">{tool.title}</CardTitle>
+                          {/* Status Badge: Show suggested badge if not added */}
+                          {toolId && pathResourceStatus === 'suggested' && (
+                            <span className="text-xs px-2 py-1 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
+                              Suggested
+                            </span>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                          {tool.description}
+                        </p>
+                        {tool.capabilities && tool.capabilities.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            {tool.capabilities.slice(0, 3).map((cap: string, i: number) => (
+                              <span key={i} className="text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-2 py-1 rounded-sm border border-gray-200">
+                                {cap}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {tool.url && (
+                          <a href={tool.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">
+                            View Tool →
+                          </a>
+                        )}
+                        {isOwner && toolId && (
+                          <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
+                            <StackManager 
+                              resourceId={toolId} 
+                              initialStatus={getInitialStackStatus()}
+                              pathId={pathId}
+                              pathResourceStatus={pathResourceStatus}
+                              onStatusChange={handleStatusChange}
+                            />
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            </section>
+          )
+        })()}
 
         {/* Human Courses */}
-        {upgradeData?.human_courses && upgradeData.human_courses.length > 0 && (
+        {pathResourcesList.human_courses && pathResourcesList.human_courses.length > 0 && (
           <section className="mb-20">
             <div className="mb-8 flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/30">
@@ -873,36 +1122,107 @@ export default function UnifiedPathPage() {
               </h2>
             </div>
             <div className="grid gap-6 md:grid-cols-3">
-              {upgradeData.human_courses.map((course, i) => (
-                <Card key={i} className={isOwner ? "group transition-all hover:border-purple-200 hover:shadow-md dark:hover:border-purple-800" : "border-zinc-200 dark:border-zinc-800"}>
-                  <CardHeader>
-                    <div className="shrink-0 mt-1">
-                      <ResourceIcon 
-                        logo_url={course.id ? resourceLogos[course.id] : undefined}
-                        url={course.url}
-                        name={course.title}
-                        className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
-                      />
-                    </div>
-                    <CardTitle className="text-lg">{course.title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
-                      {course.description}
-                    </p>
-                    {course.url && (
-                      <a href={course.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400">
-                        View Course →
-                      </a>
-                    )}
-                    {isOwner && course.id && (
-                      <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
-                        <StackManager resourceId={course.id} isCourse={true} />
+              {pathResourcesList.human_courses.map((course, i) => {
+                const courseId = course.id
+                const pathResourceStatus = courseId ? (pathResources[courseId] || 'suggested') : 'suggested'
+                const stackStatus = courseId ? userStackStatus[courseId] : null
+                const isRemoved = pathResourceStatus === 'removed'
+                
+                // Don't render if removed
+                if (isRemoved) return null
+
+                // Map path status to user_stacks status for initial display
+                const getInitialStackStatus = () => {
+                  if (pathResourceStatus === 'added_enrolled') return 'enrolled'
+                  if (pathResourceStatus === 'added_completed') return 'completed'
+                  if (pathResourceStatus === 'wishlisted') return 'todo'
+                  return stackStatus || undefined
+                }
+
+                // Callback to refresh data after status change
+                // Reactive UI: Update local state for impact_weight so the score badge updates immediately
+                const handleStatusChange = (newStatus?: string) => {
+                  // Define weights mapping (must match actions/path-resources.ts)
+                  const weights: Record<string, number> = {
+                    suggested: 0.5,
+                    added_free: 1.0,
+                    added_enrolled: 1.0,
+                    added_paid: 1.5,
+                    added_completed: 1.5,
+                    wishlisted: 0.2,
+                    removed: 0
+                  }
+                  
+                  // Update impact_weight in local state immediately (reactive UI)
+                  if (courseId && newStatus) {
+                    // Update pathResources state with new status
+                    setPathResources(prev => ({
+                      ...prev,
+                      [courseId]: newStatus
+                    }))
+                    
+                    // Update impact_weight based on new status
+                    const newWeight = weights[newStatus] || 0
+                    setPathResourceWeights(prev => ({
+                      ...prev,
+                      [courseId]: newWeight
+                    }))
+                  }
+                  
+                  // Recalculate HVQ score with updated weights
+                  const newScore = calculateHVQScore({
+                    ...upgradeData!,
+                    current_hvq_score: undefined
+                  })
+                  setUpgradeData(prev => prev ? { ...prev, current_hvq_score: newScore } : null)
+                  setCurrentHvqScore(newScore)
+                  router.refresh()
+                }
+                
+                return (
+                  <Card key={i} className={isOwner ? "group transition-all hover:border-purple-200 hover:shadow-md dark:hover:border-purple-800" : "border-zinc-200 dark:border-zinc-800"}>
+                    <CardHeader>
+                      <div className="shrink-0 mt-1">
+                        <ResourceIcon 
+                          logo_url={courseId ? resourceLogos[courseId] : course.logo_url}
+                          url={course.url}
+                          name={course.title}
+                          className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
+                        />
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
+                      <CardTitle className="text-lg">{course.title}</CardTitle>
+                      {/* Status Badge: Show suggested badge if not added */}
+                      {courseId && pathResourceStatus === 'suggested' && (
+                        <span className="text-xs px-2 py-1 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400 mt-2 inline-block">
+                          Suggested
+                        </span>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                        {course.description}
+                      </p>
+                      {course.url && (
+                        <a href={course.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400">
+                          View Course →
+                        </a>
+                      )}
+                      {isOwner && courseId && (
+                        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
+                          <StackManager 
+                            resourceId={courseId} 
+                            initialStatus={getInitialStackStatus()}
+                            isCourse={true}
+                            pathId={pathId}
+                            pathResourceStatus={pathResourceStatus}
+                            onStatusChange={handleStatusChange}
+                          />
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           </section>
         )}

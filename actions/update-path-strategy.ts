@@ -108,6 +108,63 @@ export async function updatePathStrategy(
       } else {
         console.log(`✅ Saved ${verifiedTools.length} tools and ${verifiedCourses.length} courses to path ${data.pathId}`)
       }
+
+      // Insert into path_resources table with status 'suggested'
+      // Insert ai_tools
+      if (verifiedTools.length > 0) {
+        const toolInserts = verifiedTools
+          .map((tool: any) => ({
+            path_id: data.pathId,
+            resource_id: tool.id,
+            status: "suggested",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }))
+          .filter((item: any) => item.resource_id)
+
+        if (toolInserts.length > 0) {
+          const { error: toolsError } = await supabase
+            .from("path_resources")
+            .upsert(toolInserts, {
+              onConflict: "path_id,resource_id",
+              ignoreDuplicates: false
+            })
+
+          if (toolsError) {
+            console.error("❌ Failed to insert ai_tools into path_resources:", toolsError)
+          } else {
+            console.log(`✅ Inserted ${toolInserts.length} tools into path_resources`)
+          }
+        }
+      }
+
+      // Insert human_courses
+      if (verifiedCourses.length > 0) {
+        const courseInserts = verifiedCourses
+          .map((course: any) => ({
+            path_id: data.pathId,
+            resource_id: course.id,
+            status: "suggested",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }))
+          .filter((item: any) => item.resource_id)
+
+        if (courseInserts.length > 0) {
+          const { error: coursesError } = await supabase
+            .from("path_resources")
+            .upsert(courseInserts, {
+              onConflict: "path_id,resource_id",
+              ignoreDuplicates: false
+            })
+
+          if (coursesError) {
+            console.error("❌ Failed to insert human_courses into path_resources:", coursesError)
+          } else {
+            console.log(`✅ Inserted ${courseInserts.length} courses into path_resources`)
+          }
+        }
+      }
     } catch (err) {
       console.error("⚠️ Matching Logic Error:", err)
       // Continue even if matching fails - the strategy update was successful
@@ -129,7 +186,9 @@ export async function updatePathStrategy(
     if (path?.slug && profile?.username) {
       revalidatePath(`/u/${profile.username}/${path.slug}`)
     }
-    revalidatePath(`/stack/${user.id}/${data.pathId}`)
+    // Revalidate unified route (username or userId fallback)
+    const usernameOrId = profile?.username || user.id
+    revalidatePath(`/u/${usernameOrId}`)
     
     return { success: true }
     

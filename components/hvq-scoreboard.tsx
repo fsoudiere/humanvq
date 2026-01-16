@@ -20,58 +20,37 @@ interface HVQScoreboardProps {
 }
 
 export function HVQScoreboard({ stack, paths, profile }: HVQScoreboardProps) {
-  // Calculate overall HVQ by averaging all path scores
-  const pathScores = paths
-    .filter((path: any) => path.hvq_score !== null && path.hvq_score !== undefined)
-    .map((path: any) => path.hvq_score)
+  // Calculate Global Average: Sum of all current_hvq_score / Number of Paths
+  // This is the Global Human Moat Score
+  const currentPathScores = paths
+    .filter((path: any) => path.current_hvq_score !== null && path.current_hvq_score !== undefined)
+    .map((path: any) => path.current_hvq_score)
   
-  // If no path scores available, fallback to profile current_hvq_score or 100
-  const calculatedAverage = pathScores.length > 0
-    ? pathScores.reduce((sum: number, score: number) => sum + score, 0) / pathScores.length
+  const previousPathScores = paths
+    .filter((path: any) => path.previous_hvq_score !== null && path.previous_hvq_score !== undefined)
+    .map((path: any) => path.previous_hvq_score)
+  
+  // Calculate average of all current_hvq_score values
+  const calculatedAverage = currentPathScores.length > 0
+    ? currentPathScores.reduce((sum: number, score: number) => sum + score, 0) / currentPathScores.length
     : profile?.current_hvq_score ?? 100
   
   const overallScore = Math.round(calculatedAverage)
   
-  // Sync calculated average to profile if different
-  // Note: previous_hvq_score is managed by cron job (Midnight Snapshot), frontend only updates current_hvq_score
-  useEffect(() => {
-    const syncToProfile = async () => {
-      // Don't sync if no paths exist - only sync when we have actual path scores
-      if (!profile?.user_id || !pathScores.length || paths.length === 0) return
-      
-      // Only sync if calculated average differs from stored value
-      const storedScore = profile.current_hvq_score ?? null
-      if (Math.abs(overallScore - (storedScore ?? 0)) > 0.5) {
-        try {
-          const supabase = createClient()
-          // Get current user
-          const { data: { user } } = await supabase.auth.getUser()
-          if (!user || user.id !== profile.user_id) return
-          
-          // Only update current_hvq_score - previous_hvq_score is managed by cron job
-          await supabase
-            .from("profiles")
-            .update({
-              current_hvq_score: overallScore,
-              updated_at: new Date().toISOString()
-            })
-            .eq("user_id", profile.user_id)
-        } catch (error) {
-          console.error("Failed to sync HVQ score to profile:", error)
-        }
-      }
+  // Calculate Delta (Change): Compare average of current_hvq_score vs average of previous_hvq_score
+  let deltaPercent = null
+  if (previousPathScores.length > 0 && currentPathScores.length > 0) {
+    const previousAverage = previousPathScores.reduce((sum: number, score: number) => sum + score, 0) / previousPathScores.length
+    if (previousAverage > 0) {
+      deltaPercent = Math.round(((overallScore - previousAverage) / previousAverage) * 100 * 10) / 10
     }
-    
-    syncToProfile()
-  }, [overallScore, profile?.user_id, profile?.current_hvq_score, pathScores.length, paths.length])
-  
-  // Calculate trend from profile data (use calculated score for current if profile doesn't have it)
-  const currentScore = profile?.current_hvq_score ?? (pathScores.length > 0 ? overallScore : null)
-  const previousScore = profile?.previous_hvq_score ?? null
-  let trendPercent = null
-  if (currentScore !== null && previousScore !== null && previousScore > 0) {
-    trendPercent = Math.round(((currentScore - previousScore) / previousScore) * 100 * 10) / 10
+  } else if (profile?.previous_hvq_score !== null && profile?.previous_hvq_score !== undefined && profile.previous_hvq_score > 0) {
+    // Fallback to profile previous_hvq_score if path-level previous scores aren't available
+    deltaPercent = Math.round(((overallScore - profile.previous_hvq_score) / profile.previous_hvq_score) * 100 * 10) / 10
   }
+  
+  // Use deltaPercent for display
+  const trendPercent = deltaPercent
   
   // Calculate score color based on range
   const getScoreColor = (score: number) => {
@@ -110,7 +89,7 @@ export function HVQScoreboard({ stack, paths, profile }: HVQScoreboardProps) {
               <div className={`text-6xl font-bold ${getScoreColor(overallScore)}`}>
                 {overallScore}
               </div>
-              {/* Trend Badge */}
+              {/* Delta Badge - Global percentage change */}
               {trendPercent !== null && trendPercent !== 0 && (
                 <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold transition-all ${
                   trendPercent > 0
@@ -123,7 +102,7 @@ export function HVQScoreboard({ stack, paths, profile }: HVQScoreboardProps) {
                     <ArrowDown className="w-3 h-3" />
                   )}
                   <span>
-                    {trendPercent > 0 ? '+' : ''}{trendPercent}% from yesterday
+                    {trendPercent > 0 ? '+' : ''}{trendPercent}% change
                   </span>
                 </div>
               )}
@@ -149,7 +128,7 @@ export function HVQScoreboard({ stack, paths, profile }: HVQScoreboardProps) {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                {pathScores.length}
+                {currentPathScores.length}
               </div>
               <div className="text-xs text-zinc-500 dark:text-zinc-400">
                 Scored Paths
@@ -165,7 +144,7 @@ export function HVQScoreboard({ stack, paths, profile }: HVQScoreboardProps) {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                {paths.filter((p: any) => p.hvq_score !== null && p.hvq_score < 120).length}
+                {paths.filter((p: any) => p.current_hvq_score !== null && p.current_hvq_score < 120).length}
               </div>
               <div className="text-xs text-zinc-500 dark:text-zinc-400">
                 Low Leverage

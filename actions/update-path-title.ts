@@ -58,7 +58,10 @@ export async function updatePathTitle(pathId: string, title: string) {
   if (profile?.username) {
     revalidatePath(`/u/${profile.username}/${slug}`)
   }
-  revalidatePath(`/stack/${user.id}/${pathId}`)
+  // Revalidate unified route (username or userId fallback)
+  const usernameOrId = profile?.username || user.id
+  revalidatePath(`/u/${usernameOrId}`)
   
-  return { success: true }
+  // Return the new slug so the client can redirect to the new URL
+  return { success: true, newSlug: slug }
 }

@@ -27,12 +27,28 @@ import { toJpeg } from "html-to-image"
 export default function ShareStackButton({ userId, userName }: { userId: string, userName: string }) {
   const [copied, setCopied] = useState(false)
   const [downloading, setDownloading] = useState(false)
-
-  // 1. Construct URL
   const [shareUrl, setShareUrl] = useState("")
 
+  // 1. Construct URL - Fetch username to use in URL, fallback to userId if no username
   useEffect(() => {
-    setShareUrl(`${window.location.origin}/stack/${userId}`)
+    const fetchUsername = async () => {
+      try {
+        const { createClient } = await import("@/utils/supabase/client")
+        const supabase = createClient()
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username")
+          .eq("user_id", userId)
+          .maybeSingle()
+        
+        const username = profile?.username || userId
+        setShareUrl(`${window.location.origin}/u/${username}`)
+      } catch (error) {
+        // Fallback to userId if fetch fails
+        setShareUrl(`${window.location.origin}/u/${userId}`)
+      }
+    }
+    fetchUsername()
   }, [userId])
 
 

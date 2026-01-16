@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { IntakeForm } from "@/components/IntakeForm"
+import { getUserDestination } from "@/actions/get-user-destination"
 
 type AppState = "auth" | "intake"
 
@@ -51,6 +52,7 @@ export default function Home() {
         return
       }
       setUserId(session.user.id)
+      
       // Check if profile exists
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
@@ -63,13 +65,22 @@ export default function Home() {
         return
       }
 
-      // Redirect to main portfolio hub
-      router.push(`/stack/${session.user.id}`)
+      // Use the helper function to determine redirect destination
+      // Priority: /u/[username] > /u/[userId] > /settings
+      const destination = await getUserDestination()
+      
+      if (destination) {
+        router.push(destination)
+        return
+      }
+      
+      // Fallback to unified route with userId if helper returns null
+      router.push(`/u/${session.user.id}`)
       return
     }
 
     checkStatus()
-  }, [])
+  }, [router])
 
   // Remove polling logic - it's now handled in the path page
         
@@ -158,8 +169,6 @@ export default function Home() {
         setState("auth")
         setAuthData({ email: "", password: "" })
         setAuthError(null)
-        setUpgradeData(null)
-        setIsPolling(false)
       }
     } catch (error) {
       console.error("Error signing out:", error)
@@ -358,7 +367,11 @@ export default function Home() {
               support your unique profile.
             </p>
           </div>
-          <IntakeForm onSuccess={() => setState("analyzing")} />
+          <IntakeForm onSuccess={() => {
+            // After intake form submission, redirect will be handled by the checkStatus useEffect
+            // which will run when the page reloads or session updates
+            window.location.reload()
+          }} />
         </main>
       </div>
     )

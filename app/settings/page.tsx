@@ -36,6 +36,7 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
+  const [originalUsername, setOriginalUsername] = useState<string | null>(null)
 
   const form = useForm<ProfileFormData>({
     defaultValues: {
@@ -71,9 +72,11 @@ export default function SettingsPage() {
         console.error("Error fetching profile:", profileError)
         setError("Failed to load profile")
       } else if (profile) {
+        const username = profile.username || ""
+        setOriginalUsername(username)
         form.reset({
           full_name: profile.full_name || "",
-          username: profile.username || "",
+          username: username,
           is_organization: profile.is_organization || false,
           organization_name: profile.organization_name || "",
         })
@@ -90,25 +93,49 @@ export default function SettingsPage() {
     setError(null)
     setSuccess(null)
 
+    // Check if username is changing to show optimistic success message
+    const newUsername = data.username.trim()
+    const usernameChanged = newUsername && newUsername !== originalUsername
+
     try {
+      // Show optimistic success message if username is changing
+      // (redirect will happen server-side, but this gives user feedback)
+      if (usernameChanged) {
+        setSuccess("Profile updated successfully! Redirecting...")
+      }
+
       const result = await updateProfile({
-        full_name: data.full_name.trim() || null,
-        username: data.username.trim() || null,
+        full_name: data.full_name.trim() || undefined,
+        username: newUsername || undefined,
         is_organization: data.is_organization,
         organization_name: data.is_organization ? (data.organization_name.trim() || null) : null,
       })
 
       if (!result.success) {
         setError(result.error || "Failed to update profile")
+        setSaving(false)
+        setSuccess(null) // Clear optimistic success message on error
       } else {
-        setSuccess("Profile updated successfully!")
-        setTimeout(() => setSuccess(null), 3000)
+        // If no redirect happened (username didn't change), show success message
+        if (!usernameChanged) {
+          setSuccess("Profile updated successfully!")
+          setTimeout(() => setSuccess(null), 3000)
+          setSaving(false)
+        }
+        // If username changed, redirect() was called server-side
+        // The success message is already shown optimistically
       }
-    } catch (err) {
+    } catch (err: any) {
+      // Next.js redirect() throws a NEXT_REDIRECT error which is expected
+      // If it's a redirect, let it happen; otherwise show error
+      if (err?.digest?.startsWith("NEXT_REDIRECT")) {
+        // This is expected - redirect is happening
+        return
+      }
       console.error("Error updating profile:", err)
       setError("An unexpected error occurred")
-    } finally {
       setSaving(false)
+      setSuccess(null) // Clear optimistic success message on error
     }
   }
 
@@ -160,7 +187,7 @@ export default function SettingsPage() {
       <main className="mx-auto max-w-2xl px-6 py-16">
         {/* Back Button */}
         <div className="mb-8">
-          <Link href={userId ? `/stack/${userId}` : "/"}>
+          <Link href={userId ? `/u/${userId}` : "/"}>
             <Button variant="ghost" size="sm" className="gap-2">
               <ArrowLeft className="h-4 w-4" />
               Back to Portfolio

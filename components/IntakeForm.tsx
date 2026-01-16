@@ -159,11 +159,8 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
             
             const userUsername = profile?.username || user.id
             router.push(`/u/${userUsername}/${result.slug}`)
-          } else if (result.pathId) {
-            // Fallback to old route if slug is missing
-            router.push(`/stack/${user.id}/${result.pathId}`)
           } else {
-            // Fallback to onSuccess callback
+            // Fallback to onSuccess callback if slug is missing
             onSuccess();
           }
         }

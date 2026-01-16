@@ -1,0 +1,499 @@
+"use server"
+
+import { createClient } from "@/utils/supabase/server"
+import { revalidatePath } from "next/cache"
+
+export interface AddResourceToPathResult {
+  success: boolean
+  error?: string
+}
+
+export interface RemoveResourceFromPathResult {
+  success: boolean
+  error?: string
+}
+
+export interface UpdateResourceStatusResult {
+  success: boolean
+  error?: string
+  newScore?: number
+}
+
+/**
+ * Calculation Helper: Calculate HVQ score for a given path
+ * Fetches all path_resources, immediate_steps, and delegate_tasks for a pathId
+ * Returns a single number: (hvq_score_machine/human * impact_weight) + Steps + Delegate Tasks + 100
+ */
+async function calculatePathHVQScore(pathId: string): Promise<number | null> {
+  const supabase = await createClient()
+  
+  // Fetch all path data needed for calculation
+  const { data: pathData, error: pathDataError } = await supabase
+    .from("upgrade_paths")
+    .select(`
+      immediate_steps,
+      efficiency_audit,
+      path_resources (
+        status,
+        impact_weight,
+        resources (
+          hvq_score_machine,
+          hvq_score_human
+        )
+      )
+    `)
+    .eq("id", pathId)
+    .single()
+
+  if (pathDataError || !pathData) {
+    console.error("Failed to fetch path data for HVQ calculation:", pathDataError)
+    return null
+  }
+
+  // Base Score: 100
+  const BASE_SCORE = 100
+  
+  // Completed Steps: (Count * 15)
+  // Parse immediate_steps (could be JSON string or object)
+  const immediateSteps = typeof pathData.immediate_steps === 'string'
+    ? JSON.parse(pathData.immediate_steps || '[]')
+    : (pathData.immediate_steps || [])
+  
+  const completedSteps = Array.isArray(immediateSteps)
+    ? immediateSteps.filter((step: any) => step.is_completed).length
+    : 0
+  const stepPoints = completedSteps * 15
+  
+  // Delegate Tasks: (Count * 10)
+  // Parse efficiency_audit (could be JSON string or object)
+  const efficiencyAudit = typeof pathData.efficiency_audit === 'string'
+    ? JSON.parse(pathData.efficiency_audit || '{}')
+    : (pathData.efficiency_audit || {})
+  
+  const completedDelegateTasks = Array.isArray(efficiencyAudit.delegate_to_machine)
+    ? efficiencyAudit.delegate_to_machine.filter((task: any) => task.is_completed).length
+    : 0
+  const delegatePoints = completedDelegateTasks * 10
+  
+  // Weighted Resources: SUM of (hvq_score_machine/human * impact_weight)
+  // Filter out removed resources (status = 'removed') as they have impact_weight = 0
+  let resourcePoints = 0
+  if (pathData.path_resources && Array.isArray(pathData.path_resources)) {
+    pathData.path_resources.forEach((pr: any) => {
+      // Only count resources that are not removed
+      if (pr.resources && pr.status !== 'removed') {
+        // Get resource leverage (hvq_score_machine for tools, hvq_score_human for courses)
+        const leverage = pr.resources.hvq_score_machine || pr.resources.hvq_score_human || 0
+        // Get impact_weight from path_resources table
+        const impactWeight = pr.impact_weight || 0
+        // Sum: resource_leverage * impact_weight
+        resourcePoints += leverage * impactWeight
+      }
+    })
+  }
+  
+  // Total: Base Score + Step Points + Delegate Points + Weighted Resources
+  return BASE_SCORE + stepPoints + delegatePoints + Math.round(resourcePoints)
+}
+
+/**
+ * Add a resource to a path
+ * - Creates/updates path_resources record with status 'added'
+ * - Ensures the tool exists in user_stacks (adds with 'wishlist' status if not exists)
+ */
+export async function addResourceToPath(
+  pathId: string,
+  resourceId: string
+): Promise<AddResourceToPathResult> {
+  const supabase = await createClient()
+
+  // Authenticate
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return { success: false, error: "User not authenticated" }
+  }
+
+  // Verify path ownership
+  const { data: path, error: pathError } = await supabase
+    .from("upgrade_paths")
+    .select("user_id")
+    .eq("id", pathId)
+    .single()
+
+  if (pathError || !path) {
+    return { success: false, error: "Path not found" }
+  }
+
+  if (path.user_id !== user.id) {
+    return { success: false, error: "You can only modify your own paths" }
+  }
+
+  // Ensure tool exists in user_stacks (add with 'wishlist' if not exists)
+  const { data: existingStackItem } = await supabase
+    .from("user_stacks")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("resource_id", resourceId)
+    .maybeSingle()
+
+  if (!existingStackItem) {
+    // Add to user_stacks with 'wishlist' status
+    const { error: stackError } = await supabase
+      .from("user_stacks")
+      .insert({
+        user_id: user.id,
+        resource_id: resourceId,
+        status: "wishlist"
+      })
+
+    if (stackError) {
+      console.error("Failed to add tool to user_stacks:", stackError)
+      // Continue anyway - path_resources can exist without user_stacks
+    }
+  }
+
+  // Add/update path_resources with status 'added'
+  // Include user_id for RLS policy compliance
+  const { error: pathResourceError } = await supabase
+    .from("path_resources")
+    .upsert({
+      path_id: pathId,
+      resource_id: resourceId,
+      user_id: user.id, // CRITICAL FOR RLS
+      status: "added",
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: "path_id,resource_id"
+    })
+
+  if (pathResourceError) {
+    console.error("Failed to add tool to path:", pathResourceError)
+    return { success: false, error: "Failed to add tool to path" }
+  }
+
+  // UI Feedback: Revalidate both Path URL and Profile URL
+  // This ensures Path Badges on the Profile page stay in sync when status changes
+  const { data: pathWithSlug } = await supabase
+    .from("upgrade_paths")
+    .select("slug")
+    .eq("id", pathId)
+    .single()
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("user_id", user.id)
+    .maybeSingle()
+
+  if (pathWithSlug?.slug && profile?.username) {
+    revalidatePath(`/u/${profile.username}/${pathWithSlug.slug}`) // Path page
+    revalidatePath(`/u/${profile.username}`) // Profile page (for path badges)
+  }
+
+  return { success: true }
+}
+
+/**
+ * Remove a resource from a path
+ * - Updates path_resources record with status 'removed'
+ */
+export async function removeResourceFromPath(
+  pathId: string,
+  resourceId: string
+): Promise<RemoveResourceFromPathResult> {
+  const supabase = await createClient()
+
+  // Authenticate
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return { success: false, error: "User not authenticated" }
+  }
+
+  // Verify path ownership
+  const { data: path, error: pathError } = await supabase
+    .from("upgrade_paths")
+    .select("user_id")
+    .eq("id", pathId)
+    .single()
+
+  if (pathError || !path) {
+    return { success: false, error: "Path not found" }
+  }
+
+  if (path.user_id !== user.id) {
+    return { success: false, error: "You can only modify your own paths" }
+  }
+
+  // Update path_resources with status 'removed'
+  // Include user_id for RLS policy compliance
+  const { error: pathResourceError } = await supabase
+    .from("path_resources")
+    .upsert({
+      path_id: pathId,
+      resource_id: resourceId,
+      user_id: user.id, // CRITICAL FOR RLS
+      status: "removed",
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: "path_id,resource_id"
+    })
+
+  if (pathResourceError) {
+    console.error("Failed to remove tool from path:", pathResourceError)
+    return { success: false, error: "Failed to remove tool from path" }
+  }
+
+  // UI Feedback: Revalidate both Path URL and Profile URL
+  // This ensures Path Badges on the Profile page stay in sync when status changes
+  const { data: pathWithSlug } = await supabase
+    .from("upgrade_paths")
+    .select("slug")
+    .eq("id", pathId)
+    .single()
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("user_id", user.id)
+    .maybeSingle()
+
+  if (pathWithSlug?.slug && profile?.username) {
+    revalidatePath(`/u/${profile.username}/${pathWithSlug.slug}`) // Path page
+    revalidatePath(`/u/${profile.username}`) // Profile page (for path badges)
+  }
+
+  return { success: true }
+}
+
+/**
+ * Update resource status in path_resources
+ * 
+ * Relational Upsert: Uses .upsert() with onConflict to overwrite existing status
+ * (e.g., if resource is already 'suggested', we simply overwrite to 'added_paid', etc.)
+ * 
+ * Type-Aware Status Validation:
+ * - If resource is ai_tool: only allow added_free, added_paid, wishlisted, removed, suggested
+ * - If resource is human_course: only allow added_enrolled, added_completed, wishlisted, removed, suggested
+ * 
+ * Global Sync: When updating status on a Path, also updates user_stacks table:
+ * - added_paid → paying
+ * - added_free → free_user
+ * - added_enrolled → enrolled
+ * - added_completed → completed
+ * - wishlisted → wishlist
+ * 
+ * No Global Deletion: If status is 'removed', updates path_resources but does NOT
+ * delete from user_stacks. Just removes it from this specific path.
+ */
+export async function updateResourceStatus(
+  pathId: string,
+  resourceId: string,
+  status: 'suggested' | 'added_free' | 'added_paid' | 'added_enrolled' | 'added_completed' | 'wishlisted' | 'removed'
+): Promise<UpdateResourceStatusResult> {
+  const supabase = await createClient()
+
+  // Authenticate
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    return { success: false, error: "User not authenticated" }
+  }
+
+  // Verify path ownership
+  const { data: path, error: pathError } = await supabase
+    .from("upgrade_paths")
+    .select("user_id")
+    .eq("id", pathId)
+    .single()
+
+  if (pathError || !path) {
+    return { success: false, error: "Path not found" }
+  }
+
+  if (path.user_id !== user.id) {
+    return { success: false, error: "You can only modify your own paths" }
+  }
+
+  // Fetch resource type to validate status
+  const { data: resource, error: resourceError } = await supabase
+    .from("resources")
+    .select("type")
+    .eq("id", resourceId)
+    .single()
+
+  if (resourceError || !resource) {
+    return { success: false, error: "Resource not found" }
+  }
+
+  // Type-Aware Status Validation
+  const isCourse = resource.type === "human_course"
+  const isTool = resource.type === "ai_tool"
+
+  // Validate status based on resource type
+  if (isTool) {
+    // Tools: only allow added_free, added_paid, wishlisted, removed, suggested
+    const validToolStatuses = ['suggested', 'added_free', 'added_paid', 'wishlisted', 'removed']
+    if (!validToolStatuses.includes(status)) {
+      return { success: false, error: `Invalid status for tool: ${status}. Allowed: ${validToolStatuses.join(', ')}` }
+    }
+  } else if (isCourse) {
+    // Courses: only allow added_enrolled, added_completed, wishlisted, removed, suggested
+    const validCourseStatuses = ['suggested', 'added_enrolled', 'added_completed', 'wishlisted', 'removed']
+    if (!validCourseStatuses.includes(status)) {
+      return { success: false, error: `Invalid status for course: ${status}. Allowed: ${validCourseStatuses.join(', ')}` }
+    }
+  } else {
+    return { success: false, error: `Unknown resource type: ${resource.type}` }
+  }
+
+  // Step 1: Update Path - First, upsert into path_resources
+  // Using .upsert() with onConflict ensures that if a resource is already 'suggested',
+  // we simply overwrite its status to 'added_paid', 'added_free', etc.
+  // Include user_id for RLS policy compliance
+  // Define impact weights for HVQ calculation
+  const weights: Record<string, number> = {
+    suggested: 0.5,
+    added_free: 1.0,
+    added_enrolled: 1.0,
+    added_paid: 1.5,
+    added_completed: 1.5,
+    wishlisted: 0.2,
+    removed: 0
+  }
+  
+  // Valid columns: path_id, resource_id, user_id, status, impact_weight, updated_at (created_at is auto-generated)
+  const { error: pathResourceError } = await supabase
+    .from("path_resources")
+    .upsert({
+      path_id: pathId,
+      resource_id: resourceId,
+      user_id: user.id, // CRITICAL FOR RLS
+      status: status,
+      impact_weight: weights[status] || 0,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: "path_id,resource_id"
+    })
+
+  if (pathResourceError) {
+    console.error('DATABASE ERROR:', JSON.stringify(pathResourceError, null, 2))
+    return { success: false, error: "Failed to update resource status" }
+  }
+
+  // Step 2: Sync Profile - If status is NOT 'removed' or 'suggested', update user_stacks
+  // This keeps the global profile in sync with path-specific changes
+  if (status !== 'removed' && status !== 'suggested') {
+    // Map path_resources status to user_stacks status
+    // Refined Statuses (consistent terminology):
+    // Tools: added_free → free_user, added_paid → paying, wishlisted → wishlist
+    // Courses: added_enrolled → enrolled, added_completed → completed, wishlisted → wishlist
+    let stackStatus: string | null = null
+    
+    if (status === 'added_paid') {
+      stackStatus = 'paying'
+    } else if (status === 'added_free') {
+      stackStatus = 'free_user'
+    } else if (status === 'added_enrolled') {
+      stackStatus = 'enrolled'
+    } else if (status === 'added_completed') {
+      stackStatus = 'completed'
+    } else if (status === 'wishlisted') {
+      stackStatus = 'wishlist'
+    }
+    
+    // Update user_stacks if we have a mapped status
+    if (stackStatus) {
+      // Check if resource exists in user_stacks
+      const { data: existingStackItem } = await supabase
+        .from("user_stacks")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("resource_id", resourceId)
+        .maybeSingle()
+
+      if (existingStackItem) {
+        // Update existing entry
+        const { error: updateError } = await supabase
+          .from("user_stacks")
+          .update({ status: stackStatus })
+          .eq("id", existingStackItem.id)
+
+        if (updateError) {
+          console.error("Failed to update user_stacks:", updateError)
+          // Continue anyway - path_resources update was successful
+        }
+      } else {
+        // Create new entry
+        const { error: insertError } = await supabase
+          .from("user_stacks")
+          .insert({
+            user_id: user.id,
+            resource_id: resourceId,
+            status: stackStatus
+          })
+
+        if (insertError) {
+          console.error("Failed to insert into user_stacks:", insertError)
+          // Continue anyway - path_resources update was successful
+        }
+      }
+    }
+  }
+  // Note: If status is 'removed' or 'suggested', we do NOT update user_stacks
+  // - 'removed': Keep in global stack, just remove from this specific path
+  // - 'suggested': Not yet added to stack, so no global sync needed
+
+  // Step 3: Calculate and Update HVQ Score
+  // The Save Handshake: After upserting the tool status, calculate and save the new total
+  // Fetch current score before calculation for rotation
+  const { data: currentPathData } = await supabase
+    .from("upgrade_paths")
+    .select("current_hvq_score")
+    .eq("id", pathId)
+    .single()
+  
+  const currentScore = currentPathData?.current_hvq_score || null
+  
+  // Calculate the new total for the path using the helper function
+  const newScore = await calculatePathHVQScore(pathId)
+  
+  if (newScore !== null) {
+    // Update upgrade_paths: set previous_hvq_score = current_hvq_score and current_hvq_score = [NEW_TOTAL]
+    const { error: scoreUpdateError } = await supabase
+      .from("upgrade_paths")
+      .update({
+        previous_hvq_score: currentScore,
+        current_hvq_score: newScore
+      })
+      .eq("id", pathId)
+    
+    if (scoreUpdateError) {
+      console.error("Failed to update HVQ score:", scoreUpdateError)
+      // Continue anyway - path_resources update was successful
+    }
+  }
+
+  // Step 4: Revalidate - Call revalidatePath for both the specific path and the general profile page
+  // This ensures the user sees the changes instantly
+  const { data: pathWithSlug } = await supabase
+    .from("upgrade_paths")
+    .select("slug")
+    .eq("id", pathId)
+    .single()
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("user_id", user.id)
+    .maybeSingle()
+
+  if (pathWithSlug?.slug && profile?.username) {
+    revalidatePath(`/u/${profile.username}/${pathWithSlug.slug}`) // Path page
+    revalidatePath(`/u/${profile.username}`) // Profile page (for path badges)
+  }
+
+  // Return the Score: Ensure the action returns the new score so the UI can update instantly
+  return { 
+    success: true, 
+    newScore: newScore !== null ? newScore : undefined
+  }
+}

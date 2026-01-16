@@ -3,6 +3,7 @@ import { createClient } from "@/utils/supabase/server"
 import { Button } from "@/components/ui/button"
 import { LogOut, Home } from "lucide-react"
 import LogoutButton from "./logout-button"
+import { getUserDestination as getServerUserDestination } from "@/lib/get-user-destination"
 
 export default async function Header() {
   const supabase = await createClient()
@@ -33,7 +34,7 @@ export default async function Header() {
   // STEP 2: Profile Second - Fetch profile using user.id from auth
   const { data: profile } = await supabase
     .from("profiles")
-    .select("is_organization, organization_name")
+    .select("is_organization, organization_name, username")
     .eq("user_id", user.id)
     .maybeSingle()
   
@@ -53,8 +54,11 @@ export default async function Header() {
     ? "Company Stack"
     : "My Stack"
   
-  // Use username for link if available, otherwise fall back to user_id
-  const profileLink = profile?.username ? `/u/${profile.username}` : `/stack/${user.id}`
+  // Use username for link if available, otherwise fall back to user_id (UUID)
+  const profileLink = profile?.username ? `/u/${profile.username}` : `/u/${user.id}`
+  
+  // Get home destination using the helper function
+  const homeDestination = await getServerUserDestination(user.id)
   
   console.log("🔍 Header - Auth & Profile:", {
     userId: user.id,
@@ -63,14 +67,15 @@ export default async function Header() {
     profile: profile,
     displayName: displayName,
     isOrganization: isOrganization,
-    stackLabel: stackLabel
+    stackLabel: stackLabel,
+    homeDestination: homeDestination
   })
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-zinc-200 bg-white/80 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         {/* Logo / Home Link */}
-        <Link href="/" className="flex items-center gap-2">
+        <Link href={homeDestination || "/"} className="flex items-center gap-2">
           <span className="text-xl font-light tracking-tight text-black dark:text-zinc-50">
             HumanVQ
           </span>
@@ -80,7 +85,7 @@ export default async function Header() {
         <nav className="flex items-center gap-4">
           {user ? (
             <>
-              <Link href="/">
+              <Link href={homeDestination || "/"}>
                 <Button variant="ghost" size="sm" className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
                   <Home className="h-4 w-4" />
                   Home

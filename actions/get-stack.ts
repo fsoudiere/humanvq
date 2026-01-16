@@ -23,12 +23,60 @@ export async function getUserStack(targetUserId: string) {
     .eq("user_id", targetUserId)
     .order('created_at', { ascending: false })
 
+  // 3. Fetch path_resources with path titles for each resource
+  // This shows which paths each tool/course is assigned to
+  let pathResourcesData: any[] = []
+  if (paths && paths.length > 0) {
+    const pathIds = paths.map((p: any) => p.id)
+    const { data } = await supabase
+      .from("path_resources")
+      .select(`
+        resource_id,
+        status,
+        upgrade_paths (
+          id,
+          path_title,
+          main_goal,
+          slug
+        )
+      `)
+      .eq("status", "added") // Only show tools that are added (not removed)
+      .in("path_id", pathIds)
+    
+    pathResourcesData = data || []
+  }
+  
+  // Build a map of resource_id -> array of paths
+  const resourcePathsMap: Record<string, Array<{ id: string; title: string; slug: string }>> = {}
+  if (pathResourcesData) {
+    pathResourcesData.forEach((pr: any) => {
+      // Supabase returns the joined table with the table name
+      const path = pr.upgrade_paths
+      if (path && pr.resource_id) {
+        if (!resourcePathsMap[pr.resource_id]) {
+          resourcePathsMap[pr.resource_id] = []
+        }
+        resourcePathsMap[pr.resource_id].push({
+          id: path.id,
+          title: path.path_title || path.main_goal || "Untitled Path",
+          slug: path.slug || path.id
+        })
+      }
+    })
+  }
+
+  // Attach path information to each stack item
+  const stackItemsWithPaths = (stackItems || []).map((item: any) => ({
+    ...item,
+    paths: resourcePathsMap[item.resource?.id] || []
+  }))
+
   if (stackError) {
     console.error("Error fetching stack:", stackError)
     return null
   }
 
-  // 3. Fetch Profile (using maybeSingle to handle missing profiles gracefully)
+  // 4. Fetch Profile (using maybeSingle to handle missing profiles gracefully)
   // Only select columns that exist in the profiles table
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
@@ -53,7 +101,7 @@ export async function getUserStack(targetUserId: string) {
   }
 
   return { 
-    stack: stackItems || [], 
+    stack: stackItemsWithPaths || [], 
     profile,
     paths: paths || [] // Returning paths now
   }

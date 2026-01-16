@@ -27,9 +27,10 @@ export function DeletePathButton({ pathId }: DeletePathButtonProps) {
       const result = await deletePath(pathId)
       if (result.success) {
         // Redirect to portfolio hub after deletion
+        // Extract username/userId from current path (could be /u/[username] or /u/[userId])
         const pathSegments = window.location.pathname.split('/')
-        const userId = pathSegments[2] // Extract userId from path
-        router.push(`/stack/${userId}`)
+        const usernameOrId = pathSegments[2] // Extract username or userId from path
+        router.push(`/u/${usernameOrId}`)
       } else {
         alert(result.error || "Failed to delete path")
         setIsDeleting(false)

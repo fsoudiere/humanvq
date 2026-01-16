@@ -72,7 +72,9 @@ export async function togglePathPrivacy(
   if (pathWithSlug?.slug && profile?.username) {
     revalidatePath(`/u/${profile.username}/${pathWithSlug.slug}`)
   }
-  revalidatePath(`/stack/${user.id}`)
+  // Revalidate unified route (username or userId fallback)
+  const usernameOrId = profile?.username || user.id
+  revalidatePath(`/u/${usernameOrId}`)
 
   return { success: true }
 }

@@ -32,33 +32,40 @@ export function SharePathButton({ pathId, initialIsPublic }: SharePathButtonProp
   const [hasUsername, setHasUsername] = useState(false)
   const router = useRouter()
 
-  // Fetch username when dialog opens
+  // Fetch username and slug when dialog opens
   useEffect(() => {
     if (dialogOpen) {
-      const fetchUsername = async () => {
+      const fetchUsernameAndSlug = async () => {
         const supabase = createClient()
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
+          // Fetch profile for username
           const { data: profile } = await supabase
             .from("profiles")
             .select("username, user_id")
             .eq("user_id", user.id)
             .maybeSingle()
           
-          const userUsername = profile?.username
-          setHasUsername(!!userUsername)
-          setUsername(userUsername || user.id)
+          // Fetch path for slug
+          const { data: path } = await supabase
+            .from("upgrade_paths")
+            .select("slug")
+            .eq("id", pathId)
+            .eq("user_id", user.id)
+            .maybeSingle()
           
-          // Generate share URL
+          const userUsername = profile?.username || user.id
+          const pathSlug = path?.slug || pathId // Fallback to pathId if no slug exists
           const baseUrl = window.location.origin
-          if (userUsername) {
-            setShareUrl(`${baseUrl}/u/${userUsername}/${pathId}`)
-          } else {
-            setShareUrl(`${baseUrl}/u/${user.id}/${pathId}`)
-          }
+          
+          // Generate share URL using slug
+          setShareUrl(`${baseUrl}/u/${userUsername}/${pathSlug}`)
+          
+          setHasUsername(!!profile?.username)
+          setUsername(userUsername)
         }
       }
-      fetchUsername()
+      fetchUsernameAndSlug()
     }
   }, [dialogOpen, pathId])
 

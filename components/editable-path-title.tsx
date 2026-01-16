@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
+import { useRouter, useParams } from "next/navigation"
 import { Pencil } from "lucide-react"
 import { updatePathTitle } from "@/actions/update-path-title"
 
@@ -11,6 +12,10 @@ interface EditablePathTitleProps {
 }
 
 export function EditablePathTitle({ pathId, initialTitle, onUpdate }: EditablePathTitleProps) {
+  const router = useRouter()
+  const params = useParams()
+  const username = params.username as string
+  
   const [title, setTitle] = useState(initialTitle)
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -37,18 +42,23 @@ export function EditablePathTitle({ pathId, initialTitle, onUpdate }: EditablePa
     setIsSaving(true)
     try {
       const result = await updatePathTitle(pathId, title.trim())
-      if (result.success) {
+      if (result.success && result.newSlug) {
         setIsEditing(false)
         onUpdate?.(title.trim())
+        
+        // Client-Side Redirect: Move user to the new URL with the new slug
+        const newUrl = `/u/${username}/${result.newSlug}`
+        router.push(newUrl)
+        router.refresh() // Ensure the layout recognizes the change
       } else {
         alert(result.error || "Failed to update title")
         setTitle(initialTitle)
+        setIsSaving(false)
       }
     } catch (error) {
       console.error("Error updating title:", error)
       alert("An error occurred while updating the title")
       setTitle(initialTitle)
-    } finally {
       setIsSaving(false)
     }
   }
@@ -74,8 +84,14 @@ export function EditablePathTitle({ pathId, initialTitle, onUpdate }: EditablePa
           onBlur={handleSave}
           onKeyDown={handleKeyDown}
           disabled={isSaving}
-          className="flex-1 text-4xl font-bold bg-transparent border-b-2 border-blue-500 focus:outline-none focus:border-blue-600 dark:border-blue-400 dark:focus:border-blue-300 px-2 py-1"
+          className="flex-1 text-4xl font-bold bg-transparent border-b-2 border-blue-500 focus:outline-none focus:border-blue-600 dark:border-blue-400 dark:focus:border-blue-300 px-2 py-1 disabled:opacity-50"
+          placeholder={isSaving ? "Saving..." : "Enter path title"}
         />
+        {isSaving && (
+          <span className="text-sm text-zinc-500 dark:text-zinc-400">
+            Saving...
+          </span>
+        )}
       </div>
     )
   }
