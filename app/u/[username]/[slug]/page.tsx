@@ -133,7 +133,6 @@ export default function UnifiedPathPage() {
   // Path-specific tool management
   const [pathResources, setPathResources] = useState<Record<string, string>>({}) // resourceId -> status (added/removed)
   const [pathResourceWeights, setPathResourceWeights] = useState<Record<string, number>>({}) // resourceId -> impact_weight
-  const [userStackStatus, setUserStackStatus] = useState<Record<string, string>>({}) // resourceId -> status (paying/free_user/wishlist/etc)
   const [pathResourcesList, setPathResourcesList] = useState<{
     ai_tools: ResourceItem[]
     human_courses: ResourceItem[]
@@ -308,21 +307,8 @@ export default function UnifiedPathPage() {
         setPathResourcesList({ ai_tools: aiTools, human_courses: humanCourses })
       }
 
-      // Fetch user_stacks (to check if tools are "In Stack") - only for owners
-      if (ownerCheck && user) {
-        const { data: userStackData } = await supabase
-          .from("user_stacks")
-          .select("resource_id, status")
-          .eq("user_id", user.id)
-
-        if (userStackData) {
-          const userStackMap: Record<string, string> = {}
-          userStackData.forEach((us: any) => {
-            userStackMap[us.resource_id] = us.status
-          })
-          setUserStackStatus(userStackMap)
-        }
-      }
+      // Note: path_resources is now the single source of truth
+      // We don't need to fetch a separate userStackStatus - pathResources state already contains the status
 
       // If not owner and not public, show 404
       if (!ownerCheck && !path.is_public) {
@@ -338,8 +324,28 @@ export default function UnifiedPathPage() {
         context: path.context || null
       })
 
-      setPathTitle(path.path_title || path.main_goal || "Untitled Path")
+      const pathTitleValue = path.path_title || path.main_goal || "Untitled Path"
+      setPathTitle(pathTitleValue)
       setCurrentHvqScore(path.current_hvq_score || null)
+
+      // Check if path_title is still 'Untitled Path' - show loading state
+      if (pathTitleValue === "Untitled Path") {
+        if (ownerCheck) {
+          setState("analyzing")
+          setIsPolling(true)
+        } else {
+          setState("error")
+          setErrorMessage("Path is not ready yet")
+        }
+        return
+      }
+
+      // Check if slug changed (UUID to title-based) and redirect if needed
+      if (path.slug && path.slug !== slug && path.slug !== path.id) {
+        // Slug was updated to title-based, redirect to new URL
+        router.replace(`/u/${username}/${path.slug}`)
+        return
+      }
 
       // Check if path is ready (has efficiency_audit)
       if (path.efficiency_audit) {
@@ -412,6 +418,7 @@ export default function UnifiedPathPage() {
       console.log(`📡 Polling Attempt ${pollCount}/${maxPolls}...`)
 
       // Using explicit column names: hvq_score_machine, hvq_score_human, impact_weight, and current_hvq_score
+      // Also fetch path_title and slug to detect changes
       const { data: upgradePath, error } = await supabase
         .from("upgrade_paths")
         .select(`
@@ -987,15 +994,49 @@ export default function UnifiedPathPage() {
                     Top 3 AI Tools
                   </h2>
                 </div>
-                {isOwner && currentUserId && (
-                  <AddToolSearch userId={currentUserId} />
+                {isOwner && currentUserId && pathId && (
+                  <AddToolSearch 
+                    pathId={pathId} 
+                    userId={currentUserId}
+                    onAdd={(resource, type) => {
+                      // Optimistically add resource to beginning of list
+                      if (type === 'ai_tool') {
+                        setPathResourcesList(prev => ({
+                          ...prev,
+                          ai_tools: [resource, ...prev.ai_tools]
+                        }))
+                        // Set status to 'wishlisted' for the new tool
+                        setPathResources(prev => ({
+                          ...prev,
+                          [resource.id]: 'wishlisted'
+                        }))
+                        setPathResourceWeights(prev => ({
+                          ...prev,
+                          [resource.id]: 0.2 // weight for wishlisted
+                        }))
+                      } else if (type === 'human_course') {
+                        setPathResourcesList(prev => ({
+                          ...prev,
+                          human_courses: [resource, ...prev.human_courses]
+                        }))
+                        // Set status to 'wishlisted' for the new course
+                        setPathResources(prev => ({
+                          ...prev,
+                          [resource.id]: 'wishlisted'
+                        }))
+                        setPathResourceWeights(prev => ({
+                          ...prev,
+                          [resource.id]: 0.2 // weight for wishlisted
+                        }))
+                      }
+                    }}
+                  />
                 )}
               </div>
               <div className="grid gap-6 md:grid-cols-3">
                 {visibleTools.map((tool, i) => {
                   const toolId = tool.id && tool.id !== 'null' ? tool.id : null
                   const pathResourceStatus = toolId ? (pathResources[toolId] || 'suggested') : 'suggested'
-                  const stackStatus = toolId ? userStackStatus[toolId] : null
                   
                   // Unified status system
                   const isRemoved = pathResourceStatus === 'removed'
@@ -1043,12 +1084,12 @@ export default function UnifiedPathPage() {
                     router.refresh()
                   }
 
-                  // Map path status to user_stacks status for initial display
+                  // Map path_resources status to display status for StackManager
                   const getInitialStackStatus = () => {
                     if (pathResourceStatus === 'added_paid') return 'paying'
                     if (pathResourceStatus === 'added_free') return 'free_user'
                     if (pathResourceStatus === 'wishlisted') return 'wishlist'
-                    return stackStatus || undefined
+                    return undefined
                   }
 
                   return (
@@ -1125,18 +1166,17 @@ export default function UnifiedPathPage() {
               {pathResourcesList.human_courses.map((course, i) => {
                 const courseId = course.id
                 const pathResourceStatus = courseId ? (pathResources[courseId] || 'suggested') : 'suggested'
-                const stackStatus = courseId ? userStackStatus[courseId] : null
                 const isRemoved = pathResourceStatus === 'removed'
                 
                 // Don't render if removed
                 if (isRemoved) return null
 
-                // Map path status to user_stacks status for initial display
+                // Map path_resources status to display status for StackManager
                 const getInitialStackStatus = () => {
                   if (pathResourceStatus === 'added_enrolled') return 'enrolled'
                   if (pathResourceStatus === 'added_completed') return 'completed'
                   if (pathResourceStatus === 'wishlisted') return 'todo'
-                  return stackStatus || undefined
+                  return undefined
                 }
 
                 // Callback to refresh data after status change

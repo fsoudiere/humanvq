@@ -1,15 +1,15 @@
-import { getUserStack } from "@/actions/get-stack"
 import { createClient } from "@/utils/supabase/server"
-import StackManager from "@/components/stack-manager"
 import ShareStackButton from "@/components/share-stack-button"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { BookOpen, Wrench, GraduationCap, CheckCircle2, Clock, ListTodo, Target, ArrowUp, ArrowDown } from "lucide-react"
+import { BookOpen, Wrench, GraduationCap, CheckCircle2, Clock, ListTodo, Target, ArrowUp, ArrowDown, Settings } from "lucide-react"
 import { Metadata } from "next"
 import ResourceIcon from "@/components/resource-icon"
 import { Card, CardContent } from "@/components/ui/card"
 import { DeletePathButton } from "@/components/delete-path-button"
 import { TogglePathVisibility } from "@/components/toggle-path-visibility"
+import TierSection from "@/components/tier-section"
+import CourseGroup from "@/components/course-group"
 
 interface PageProps {
   params: Promise<{ username: string }>
@@ -117,11 +117,111 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   // STEP 3: Ownership Check
   const isOwner = currentUser?.id === profile.user_id
 
-  // STEP 4: Fetch stack data using targetUserId
-  const data = await getUserStack(targetUserId)
-  const stack = data?.stack || []
-  const paths = data?.paths || []
+  // STEP 4: Fetch upgrade_paths for Global Human Moat Score and Path cards
+  const { data: pathsData, error: pathsError } = await supabase
+    .from("upgrade_paths")
+    .select("*")
+    .eq("user_id", targetUserId)
+    .order('created_at', { ascending: false })
   
+  const paths = pathsData || []
+
+  // STEP 5: Fetch path_resources directly (single source of truth)
+  // Query by user_id to get all resources across all paths
+  const { data: allPathResources, error: pathResourcesError } = await supabase
+    .from("path_resources")
+    .select(`
+      *,
+      resource:resources (
+        id, name, description, url, logo_url, capabilities, type
+      ),
+      upgrade_paths (
+        id,
+        path_title,
+        main_goal,
+        slug
+      )
+    `)
+    .eq("user_id", targetUserId)
+    .neq("status", "removed") // Exclude removed resources
+
+  // Debug log to see if data is being returned
+  console.log('Path Resources found for user:', allPathResources?.length || 0)
+
+  if (pathResourcesError) {
+    console.error("Error fetching path_resources:", pathResourcesError)
+  }
+
+  // STEP 6: Filter out null resources and deduplicate
+  // Remove items where resource is null (deleted from library)
+  const validPathResources = (allPathResources || []).filter((pr: any) => {
+    return pr.resource !== null && pr.resource_id !== null
+  })
+
+  console.log('Valid Path Resources (after null filter):', validPathResources.length)
+
+  // Simplified deduplication - just group by resource_id and collect all paths
+  // Use the first status found (simplified from priority logic)
+  const resourceMap: Record<string, {
+    resource: any
+    status: string
+    paths: Array<{ id: string; title: string; slug: string }>
+  }> = {}
+
+  // Process all valid path_resources to build complete resource map with all paths
+  validPathResources.forEach((pr: any) => {
+    const resourceId = pr.resource_id
+    const resource = pr.resource // Note: using 'resource' alias from select
+    const path = pr.upgrade_paths
+
+    if (!resource || !resourceId) return
+
+    if (!resourceMap[resourceId]) {
+      // First occurrence of this resource - use this status
+      resourceMap[resourceId] = {
+        resource,
+        status: pr.status,
+        paths: []
+      }
+    }
+
+    // Add path to the list (avoid duplicates)
+    if (path) {
+      const pathExists = resourceMap[resourceId].paths.some(p => p.id === path.id)
+      if (!pathExists) {
+        resourceMap[resourceId].paths.push({
+          id: path.id,
+          title: path.path_title || path.main_goal || "Untitled Path",
+          slug: path.slug || path.id
+        })
+      }
+    }
+  })
+
+  // STEP 7: Convert map to array format matching existing structure
+  // Map path_resources status to display status for compatibility
+  const statusMap: Record<string, string> = {
+    'added_paid': 'paying',
+    'added_free': 'free_user',
+    'added_enrolled': 'enrolled',
+    'added_completed': 'completed',
+    'wishlisted': 'wishlist',
+    'suggested': 'suggested'
+  }
+
+  const stack = Object.values(resourceMap).map((item) => ({
+    status: statusMap[item.status] || item.status,
+    resource: item.resource,
+    paths: item.paths
+  }))
+
+  console.log('Final stack items:', stack.length)
+  console.log('Stack items with statuses:', stack.map((s: any) => ({ 
+    name: s.resource?.name, 
+    status: s.status, 
+    originalStatus: resourceMap[s.resource?.id]?.status 
+  })))
+
   // Get username for unified routes (use profile username or fallback to user_id)
   const displayUsername = profile.username || targetUserId
   
@@ -161,19 +261,41 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   // --- SEPARATE & GROUP DATA ---
   
   // Split into Arrays
-  const courses = stack.filter((i: any) => i.resource.type === 'human_course')
-  const tools = stack.filter((i: any) => i.resource.type !== 'human_course')
+  const courses = stack.filter((i: any) => i.resource?.type === 'human_course')
+  const tools = stack.filter((i: any) => i.resource?.type !== 'human_course')
 
-  // Group Tools
+  console.log('Tools count:', tools.length, 'Courses count:', courses.length)
+  console.log('Tool statuses:', tools.map((t: any) => ({ name: t.resource?.name, status: t.status })))
+  console.log('Course statuses:', courses.map((c: any) => ({ name: c.resource?.name, status: c.status })))
+
+  // Group Tools - include all non-removed statuses
   const payingTools = tools.filter((i: any) => i.status === 'paying')
   const freeTools = tools.filter((i: any) => i.status === 'free_user')
   const wishlistTools = tools.filter((i: any) => i.status === 'wishlist')
   const churnedTools = tools.filter((i: any) => i.status === 'churned')
+  // Catch-all for any unmapped tool statuses
+  const otherTools = tools.filter((i: any) => 
+    i.status !== 'paying' && 
+    i.status !== 'free_user' && 
+    i.status !== 'wishlist' && 
+    i.status !== 'churned' &&
+    i.status !== 'removed'
+  )
 
-  // Group Courses
+  // Group Courses - include all non-removed statuses
   const enrolledCourses = courses.filter((i: any) => i.status === 'enrolled')
   const completedCourses = courses.filter((i: any) => i.status === 'completed')
   const todoCourses = courses.filter((i: any) => i.status === 'todo')
+  // Catch-all for any unmapped course statuses
+  const otherCourses = courses.filter((i: any) => 
+    i.status !== 'enrolled' && 
+    i.status !== 'completed' && 
+    i.status !== 'todo' &&
+    i.status !== 'removed'
+  )
+
+  console.log('Grouped counts - paying:', payingTools.length, 'free:', freeTools.length, 'wishlist:', wishlistTools.length, 'churned:', churnedTools.length, 'other tools:', otherTools.length)
+  console.log('Grouped counts - enrolled:', enrolledCourses.length, 'completed:', completedCourses.length, 'todo:', todoCourses.length, 'other courses:', otherCourses.length)
 
   // Filter paths based on ownership
   const displayPaths = isOwner ? paths : paths.filter((p: any) => p.is_public === true)
@@ -216,9 +338,22 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
       
       {/* HEADER */}
       <div className="text-center mb-12">
-        <h1 className="text-4xl font-extrabold mb-2">
-          {displayName}'s {stackType}
-        </h1>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex-1"></div>
+          <h1 className="text-4xl font-extrabold mb-2 flex-1">
+            {displayName}'s {stackType}
+          </h1>
+          <div className="flex-1 flex justify-end">
+            {isOwner && (
+              <Link href="/settings">
+                <Button variant="ghost" size="sm" className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+                  <Settings className="h-4 w-4" />
+                  Settings
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
         
         {isOwner ? (
           <>
@@ -504,10 +639,10 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
             </div>
             
             <div className="space-y-8">
-              <TierSection title="💸 Essential (Paying)" items={payingTools} isOwner={isOwner} username={displayUsername} />
-              <TierSection title="⚡ Daily Drivers (Free)" items={freeTools} isOwner={isOwner} username={displayUsername} />
-              <TierSection title="🔖 Wishlist" items={wishlistTools} isOwner={isOwner} username={displayUsername} />
-              {isOwner && <TierSection title="💀 Churned" items={churnedTools} isOwner={isOwner} username={displayUsername} />}
+              <TierSection title="💸 Essential (Paying)" items={payingTools} isOwner={isOwner} username={displayUsername} paths={paths} />
+              <TierSection title="⚡ Daily Drivers (Free)" items={freeTools} isOwner={isOwner} username={displayUsername} paths={paths} />
+              <TierSection title="🔖 Wishlist" items={wishlistTools} isOwner={isOwner} username={displayUsername} paths={paths} />
+              {isOwner && <TierSection title="💀 Churned" items={churnedTools} isOwner={isOwner} username={displayUsername} paths={paths} />}
             </div>
           </section>
         )}
@@ -530,6 +665,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                   username={displayUsername}
                   icon={<Clock className="w-4 h-4 text-blue-600" />}
                   colorClass="border-blue-200 bg-blue-50/50"
+                  paths={paths}
                 />
               )}
 
@@ -542,6 +678,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                   username={displayUsername}
                   icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />}
                   colorClass="border-emerald-200 bg-emerald-50/50"
+                  paths={paths}
                 />
               )}
 
@@ -554,6 +691,20 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                   username={displayUsername}
                   icon={<ListTodo className="w-4 h-4 text-gray-500" />}
                   colorClass="border-gray-200 bg-gray-50/50"
+                  paths={paths}
+                />
+              )}
+
+              {/* Other Courses */}
+              {otherCourses.length > 0 && (
+                <CourseGroup 
+                  title="📚 Other Courses" 
+                  items={otherCourses} 
+                  isOwner={isOwner} 
+                  username={displayUsername}
+                  icon={<BookOpen className="w-4 h-4 text-gray-500" />}
+                  colorClass="border-gray-200 bg-gray-50/50"
+                  paths={paths}
                 />
               )}
             </div>
@@ -565,143 +716,3 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   )
 }
 
-// --- SUB-COMPONENT 1: TOOLS (Standard Tier List) ---
-function TierSection({ title, items, isOwner, username }: any) {
-  if (items.length === 0) return null
-  return (
-    <div className="p-6 bg-white border border-zinc-200 rounded-xl shadow-sm">
-      <h3 className="text-lg font-bold mb-4 text-zinc-800 flex items-center gap-2">
-        {title} 
-        <span className="text-xs bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded-full font-normal">
-          {items.length}
-        </span>
-      </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {items.map((item: any) => {
-          const pathBadges = item.paths || []
-          
-          return (
-            <div key={item.resource.id} className="p-4 border border-zinc-100 rounded-lg hover:bg-zinc-50 transition relative group">
-              <div className="shrink-0 mt-1">
-                <ResourceIcon 
-                  url={item.resource.url}
-                  logo_url={item.resource.logo_url}
-                  name={item.resource.name}
-                  className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
-                />
-              </div>
-              <div className="flex justify-between items-start mb-2">
-                <span className="font-semibold text-sm pr-6">{item.resource.name}</span>
-                {isOwner && (
-                  <div className="absolute top-4 right-4 scale-90 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                    <StackManager resourceId={item.resource.id} initialStatus={item.status} isCourse={false} />
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-zinc-500 line-clamp-2 mb-2">{item.resource.description}</p>
-              
-              {/* Path Badges */}
-              {pathBadges.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {pathBadges.map((path: any) => (
-                    <Link
-                      key={path.id}
-                      href={`/u/${username}/${path.slug}`}
-                      className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800 transition-colors"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {path.title}
-                    </Link>
-                  ))}
-                </div>
-              )}
-              
-              {(
-                 <a href={item.resource.url} target="_blank" className="text-[10px] text-blue-600 hover:underline block">
-                   View Tool →
-                 </a>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// --- SUB-COMPONENT 2: COURSES (New Grouping Style) ---
-function CourseGroup({ title, items, isOwner, username, icon, colorClass }: any) {
-  return (
-    <div className={`p-6 rounded-xl border ${colorClass}`}>
-      <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-zinc-800">
-        {icon} {title}
-        <span className="text-xs bg-white border border-zinc-200 px-2 py-0.5 rounded-full text-zinc-500 font-normal ml-auto">
-          {items.length} Items
-        </span>
-      </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {items.map((item: any) => {
-          const pathBadges = item.paths || []
-          
-          return (
-            <div key={item.resource.id} className="bg-white p-4 rounded-lg border border-zinc-200/60 shadow-sm flex flex-col h-full">
-              <div className="shrink-0">
-                 <ResourceIcon 
-                   url={item.resource.url}
-                   logo_url={item.resource.logo_url}
-                   name={item.resource.name}
-                   className="w-16 h-16 rounded object-contain"
-                 />
-                </div>
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex items-center gap-2">
-                  
-                  <span className="font-bold text-sm text-zinc-900">{item.resource.name}</span>
-                </div>
-                
-                {/* 👇 This is the magic prop: isCourse={true} */}
-                {isOwner && (
-                  <div className="scale-90 origin-top-right">
-                    <StackManager 
-                      resourceId={item.resource.id} 
-                      initialStatus={item.status} 
-                      isCourse={true} 
-                    />
-                  </div>
-                )}
-              </div>
-              
-              <p className="text-xs text-zinc-500 mb-3 line-clamp-2">
-                {item.resource.description}
-              </p>
-              
-              {/* Path Badges */}
-              {pathBadges.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {pathBadges.map((path: any) => (
-                    <Link
-                      key={path.id}
-                      href={`/u/${username}/${path.slug}`}
-                      className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-800 transition-colors"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {path.title}
-                    </Link>
-                  ))}
-                </div>
-              )}
-              
-              {!isOwner && (
-                <div className="mt-auto pt-2 border-t border-zinc-50">
-                  <a href={item.resource.url} target="_blank" className="text-xs font-semibold text-blue-600 hover:underline">
-                    Start Learning →
-                  </a>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}

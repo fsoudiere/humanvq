@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { generatePath } from "@/actions/generate-path"
 import { updatePathStrategy } from "@/actions/update-path-strategy"
 import { createClient } from "@/utils/supabase/client"
+import { slugify } from "@/lib/slugify"
 import { 
   Code2, 
   Megaphone, 
@@ -62,6 +63,8 @@ const PREDEFINED_ROLES = [
 export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: IntakeFormProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isWaitingForPath, setIsWaitingForPath] = useState(false)
+  const [waitingPathId, setWaitingPathId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showCustomRole, setShowCustomRole] = useState(false)
   const isEditMode = !!pathId && !!initialData
@@ -103,6 +106,88 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
       setShowCustomRole(!isPredefined)
     }
   }, [isEditMode, initialData])
+
+  // Poll for slug readiness (Supabase trigger sets slug when path_title is processed)
+  useEffect(() => {
+    if (!isWaitingForPath || !waitingPathId) return
+
+    let pollCount = 0
+    const maxPolls = 40 // 40 * 3 seconds = 2 minutes max wait time
+    const pollInterval = 3000 // 3 seconds
+
+    const checkPathReady = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        setError("User not authenticated")
+        setIsWaitingForPath(false)
+        return
+      }
+
+      pollCount++
+      console.log(`⏳ Polling for slug (attempt ${pollCount}/${maxPolls})...`)
+
+      // Fetch path to check if slug is ready (Supabase trigger sets it when path_title is processed)
+      const { data: path, error: pathError } = await supabase
+        .from("upgrade_paths")
+        .select("slug")
+        .eq("id", waitingPathId)
+        .maybeSingle()
+
+      if (pathError) {
+        console.error("❌ Error polling path:", pathError)
+        if (pollCount >= maxPolls) {
+          setError("Path generation timed out. Please try again.")
+          setIsWaitingForPath(false)
+        }
+        return
+      }
+
+      if (!path) {
+        if (pollCount >= maxPolls) {
+          setError("Path not found. Please try again.")
+          setIsWaitingForPath(false)
+        }
+        return // Continue polling if not at max
+      }
+
+      // Keep polling as long as slug is null (Supabase trigger hasn't finished yet)
+      if (!path.slug) {
+        // Continue polling - slug is null, waiting for Supabase trigger to complete
+        if (pollCount >= maxPolls) {
+          setError("Path generation timed out. Please try again.")
+          setIsWaitingForPath(false)
+        }
+        return
+      }
+      
+      // Green Light: Slug is non-null, meaning Supabase trigger has finished
+      // Redirect immediately using router.replace()
+      console.log(`✅ Path ready! Slug: "${path.slug}"`)
+      
+      // Fetch username for the route
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("user_id", user.id)
+        .maybeSingle()
+      
+      const userUsername = profile?.username || user.id
+      setIsWaitingForPath(false)
+      // Use replace to avoid adding to history stack
+      router.replace(`/u/${userUsername}/${path.slug}`)
+      return // Exit early - no need to continue polling
+    }
+
+    // Start polling immediately, then every 3 seconds
+    checkPathReady()
+    const interval = setInterval(checkPathReady, pollInterval)
+
+    return () => {
+      clearInterval(interval)
+    }
+  }, [isWaitingForPath, waitingPathId, router])
 
   const handleRoleSelect = (value: string) => {
     if (value === "custom") {
@@ -147,22 +232,14 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
         if (!result.success) {
           setError(result.error || "Failed to generate upgrade path")
           setIsSubmitting(false)
+        } else if (result.pathId) {
+          // Enter waiting room - poll for final slug
+          setIsSubmitting(false)
+          setIsWaitingForPath(true)
+          setWaitingPathId(result.pathId)
         } else {
-          // Redirect to the new path URL using slug-based route
-          if (result.pathId && result.slug) {
-            // Fetch username for the route
-            const { data: profile } = await supabase
-              .from("profiles")
-              .select("username")
-              .eq("user_id", user.id)
-              .maybeSingle()
-            
-            const userUsername = profile?.username || user.id
-            router.push(`/u/${userUsername}/${result.slug}`)
-          } else {
-            // Fallback to onSuccess callback if slug is missing
-            onSuccess();
-          }
+          setError("Path creation failed - no path ID returned")
+          setIsSubmitting(false)
         }
       }
     } catch (err) {
@@ -170,6 +247,25 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
       setError("An unexpected error occurred. Please try again.")
       setIsSubmitting(false)
     }
+  }
+
+  // Show loading overlay when waiting for path to be ready
+  if (isWaitingForPath) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center gap-4">
+        <div className="flex gap-2">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:0ms]"></div>
+          <div className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms]"></div>
+          <div className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms]"></div>
+        </div>
+        <p className="text-lg text-zinc-600 dark:text-zinc-400">
+          Generating your upgrade path...
+        </p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-500">
+          This usually takes 10-30 seconds
+        </p>
+      </div>
+    )
   }
 
   const formContent = (

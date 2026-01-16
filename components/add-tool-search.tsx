@@ -5,11 +5,29 @@ import { createClient } from "@/utils/supabase/client"
 import { useRouter } from "next/navigation"
 import { Search, Plus } from "lucide-react"
 import ResourceIcon from "@/components/resource-icon"
+import { addResourceToPath } from "@/actions/path-resources"
 
-export default function AddToolSearch({ userId }: { userId: string }) {
+interface ResourceItem {
+  id: string
+  title: string
+  description: string
+  url?: string
+  logo_url?: string
+  hvq_score_machine?: number
+  hvq_score_human?: number
+}
+
+interface AddToolSearchProps {
+  pathId: string
+  userId: string
+  onAdd?: (resource: ResourceItem, type: 'ai_tool' | 'human_course') => void
+}
+
+export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchProps) {
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const [adding, setAdding] = useState<string | null>(null)
   
   const supabase = createClient()
   const router = useRouter()
@@ -38,23 +56,56 @@ export default function AddToolSearch({ userId }: { userId: string }) {
     return () => clearTimeout(timer)
   }, [query])
 
-  // 2. Add Logic (Smart Status)
+  // 2. Add Logic - Use server action to add to path_resources
   const addToStack = async (tool: any) => {
-    // Check if it is a course
-    const isCourse = tool.type === 'human_course';
-    
-    // Set appropriate default status
-    const defaultStatus = isCourse ? 'todo' : 'free_user';
+    if (!pathId || !userId) {
+      console.error("Missing pathId or userId:", { pathId, userId })
+      return
+    }
 
-    await supabase.from("user_stacks").upsert({
-      user_id: userId,
-      resource_id: tool.id,
-      status: defaultStatus // 👈 Uses the correct status now
-    })
+    setAdding(tool.id)
     
+    // Determine resource type
+    const resourceType = tool.type === 'human_course' ? 'human_course' : 'ai_tool'
+    
+    // Optimistic UI update - add to beginning of list immediately
+    if (onAdd) {
+      const resourceItem: ResourceItem = {
+        id: tool.id,
+        title: tool.name,
+        description: tool.description || "",
+        url: tool.url,
+        logo_url: undefined, // Will be fetched on refresh
+        hvq_score_machine: undefined, // Will be fetched on refresh
+        hvq_score_human: undefined // Will be fetched on refresh
+      }
+      onAdd(resourceItem, resourceType)
+    }
+    
+    // Clear search immediately for better UX
     setQuery("")
     setResults([])
-    router.refresh()
+    
+    try {
+      const result = await addResourceToPath(pathId, tool.id)
+      
+      if (!result.success) {
+        console.error("Failed to add tool to path:", result.error)
+        // Log additional context for debugging
+        console.error("Add tool context:", { pathId, userId, resourceId: tool.id })
+        alert(`Failed to add tool: ${result.error || "Unknown error"}`)
+        // Optionally: remove from optimistic update on error
+        // For now, we'll let router.refresh() handle it
+      }
+      
+      // Refresh to get complete data (logo, scores, etc.)
+      router.refresh()
+    } catch (error) {
+      console.error("Error adding tool to path:", error)
+      // Optionally: remove from optimistic update on error
+    } finally {
+      setAdding(null)
+    }
   }
 
   return (
@@ -94,8 +145,11 @@ export default function AddToolSearch({ userId }: { userId: string }) {
                    <p className="text-xs text-gray-500 truncate max-w-[200px]">{tool.description}</p>
                 </div>
               </div>
-              <button className="text-xs bg-black text-white px-3 py-1 rounded-full flex items-center gap-1 hover:bg-gray-800">
-                <Plus className="w-3 h-3" /> Add
+              <button 
+                disabled={adding === tool.id}
+                className="text-xs bg-black text-white px-3 py-1 rounded-full flex items-center gap-1 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-3 h-3" /> {adding === tool.id ? "Adding..." : "Add"}
               </button>
             </div>
           ))}

@@ -31,16 +31,8 @@ export async function deleteAccount(): Promise<DeleteAccountResult> {
       // Continue anyway - try to delete other data
     }
 
-    // Delete user's stack items
-    const { error: stackError } = await supabase
-      .from("user_stacks")
-      .delete()
-      .eq("user_id", userId)
-
-    if (stackError) {
-      console.error("Failed to delete stack:", stackError)
-      // Continue anyway
-    }
+    // Note: path_resources will be automatically deleted via cascade when upgrade_paths are deleted
+    // No need to explicitly delete from user_stacks (we're migrating away from it)
 
     // Delete profile
     const { error: profileError } = await supabase

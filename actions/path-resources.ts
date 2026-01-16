@@ -98,8 +98,8 @@ async function calculatePathHVQScore(pathId: string): Promise<number | null> {
 
 /**
  * Add a resource to a path
- * - Creates/updates path_resources record with status 'added'
- * - Ensures the tool exists in user_stacks (adds with 'wishlist' status if not exists)
+ * - Creates/updates path_resources record with status 'wishlisted'
+ * - path_resources is now the single source of truth
  */
 export async function addResourceToPath(
   pathId: string,
@@ -128,47 +128,67 @@ export async function addResourceToPath(
     return { success: false, error: "You can only modify your own paths" }
   }
 
-  // Ensure tool exists in user_stacks (add with 'wishlist' if not exists)
-  const { data: existingStackItem } = await supabase
-    .from("user_stacks")
-    .select("id")
-    .eq("user_id", user.id)
+  // Check if path_resource already exists
+  const { data: existingPathResource } = await supabase
+    .from("path_resources")
+    .select("id, status")
+    .eq("path_id", pathId)
     .eq("resource_id", resourceId)
     .maybeSingle()
 
-  if (!existingStackItem) {
-    // Add to user_stacks with 'wishlist' status
-    const { error: stackError } = await supabase
-      .from("user_stacks")
-      .insert({
-        user_id: user.id,
-        resource_id: resourceId,
-        status: "wishlist"
+  // If exists, update to 'wishlisted'; otherwise insert new record
+  let pathResourceError = null
+  
+  if (existingPathResource) {
+    // Update existing record
+    console.log("📝 Updating existing path_resource to 'wishlisted'")
+    const { error: updateError } = await supabase
+      .from("path_resources")
+      .update({
+        status: "wishlisted",
+        user_id: user.id, // Ensure user_id is set for RLS
+        updated_at: new Date().toISOString()
       })
-
-    if (stackError) {
-      console.error("Failed to add tool to user_stacks:", stackError)
-      // Continue anyway - path_resources can exist without user_stacks
-    }
+      .eq("id", existingPathResource.id)
+    
+    pathResourceError = updateError
+  } else {
+    // Insert new record
+    console.log("➕ Inserting new path_resource with status 'wishlisted'")
+    const { error: insertError } = await supabase
+      .from("path_resources")
+      .insert({
+        path_id: pathId,
+        resource_id: resourceId,
+        user_id: user.id, // CRITICAL FOR RLS
+        status: "wishlisted",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+    
+    pathResourceError = insertError
   }
 
-  // Add/update path_resources with status 'added'
-  // Include user_id for RLS policy compliance
-  const { error: pathResourceError } = await supabase
-    .from("path_resources")
-    .upsert({
-      path_id: pathId,
-      resource_id: resourceId,
-      user_id: user.id, // CRITICAL FOR RLS
-      status: "added",
-      updated_at: new Date().toISOString()
-    }, {
-      onConflict: "path_id,resource_id"
-    })
-
   if (pathResourceError) {
-    console.error("Failed to add tool to path:", pathResourceError)
-    return { success: false, error: "Failed to add tool to path" }
+    // Log detailed error information for debugging
+    console.error("❌ Failed to add/update tool in path_resources:", {
+      error: pathResourceError,
+      code: pathResourceError.code,
+      message: pathResourceError.message,
+      details: pathResourceError.details,
+      hint: pathResourceError.hint,
+      pathId,
+      resourceId,
+      userId: user.id,
+      existing: !!existingPathResource
+    })
+    
+    // Return detailed error message for better debugging
+    const errorMessage = pathResourceError.message || pathResourceError.details || pathResourceError.hint || "Unknown error"
+    return { 
+      success: false, 
+      error: `Failed to ${existingPathResource ? 'update' : 'add'} tool to path: ${errorMessage}` 
+    }
   }
 
   // UI Feedback: Revalidate both Path URL and Profile URL
@@ -275,15 +295,8 @@ export async function removeResourceFromPath(
  * - If resource is ai_tool: only allow added_free, added_paid, wishlisted, removed, suggested
  * - If resource is human_course: only allow added_enrolled, added_completed, wishlisted, removed, suggested
  * 
- * Global Sync: When updating status on a Path, also updates user_stacks table:
- * - added_paid → paying
- * - added_free → free_user
- * - added_enrolled → enrolled
- * - added_completed → completed
- * - wishlisted → wishlist
- * 
- * No Global Deletion: If status is 'removed', updates path_resources but does NOT
- * delete from user_stacks. Just removes it from this specific path.
+ * Single Source of Truth: path_resources is now the only table used for tracking
+ * user tools and courses. No sync with user_stacks needed.
  */
 export async function updateResourceStatus(
   pathId: string,
@@ -379,68 +392,8 @@ export async function updateResourceStatus(
     return { success: false, error: "Failed to update resource status" }
   }
 
-  // Step 2: Sync Profile - If status is NOT 'removed' or 'suggested', update user_stacks
-  // This keeps the global profile in sync with path-specific changes
-  if (status !== 'removed' && status !== 'suggested') {
-    // Map path_resources status to user_stacks status
-    // Refined Statuses (consistent terminology):
-    // Tools: added_free → free_user, added_paid → paying, wishlisted → wishlist
-    // Courses: added_enrolled → enrolled, added_completed → completed, wishlisted → wishlist
-    let stackStatus: string | null = null
-    
-    if (status === 'added_paid') {
-      stackStatus = 'paying'
-    } else if (status === 'added_free') {
-      stackStatus = 'free_user'
-    } else if (status === 'added_enrolled') {
-      stackStatus = 'enrolled'
-    } else if (status === 'added_completed') {
-      stackStatus = 'completed'
-    } else if (status === 'wishlisted') {
-      stackStatus = 'wishlist'
-    }
-    
-    // Update user_stacks if we have a mapped status
-    if (stackStatus) {
-      // Check if resource exists in user_stacks
-      const { data: existingStackItem } = await supabase
-        .from("user_stacks")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("resource_id", resourceId)
-        .maybeSingle()
-
-      if (existingStackItem) {
-        // Update existing entry
-        const { error: updateError } = await supabase
-          .from("user_stacks")
-          .update({ status: stackStatus })
-          .eq("id", existingStackItem.id)
-
-        if (updateError) {
-          console.error("Failed to update user_stacks:", updateError)
-          // Continue anyway - path_resources update was successful
-        }
-      } else {
-        // Create new entry
-        const { error: insertError } = await supabase
-          .from("user_stacks")
-          .insert({
-            user_id: user.id,
-            resource_id: resourceId,
-            status: stackStatus
-          })
-
-        if (insertError) {
-          console.error("Failed to insert into user_stacks:", insertError)
-          // Continue anyway - path_resources update was successful
-        }
-      }
-    }
-  }
-  // Note: If status is 'removed' or 'suggested', we do NOT update user_stacks
-  // - 'removed': Keep in global stack, just remove from this specific path
-  // - 'suggested': Not yet added to stack, so no global sync needed
+  // Note: path_resources is now the single source of truth
+  // No need to sync with user_stacks anymore
 
   // Step 3: Calculate and Update HVQ Score
   // The Save Handshake: After upserting the tool status, calculate and save the new total

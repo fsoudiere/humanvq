@@ -1,15 +1,104 @@
-import { getUserStack } from "@/actions/get-stack"
 import { createClient } from "@/utils/supabase/server"
 import StackManager from "@/components/stack-manager"
 import Link from "next/link"
 
 export default async function PublicStackPage({ params }: { params: { userId: string } }) {
-  const data = await getUserStack(params.userId)
-  const stack = data?.stack || []
-  const profile = data?.profile
+  const supabase = await createClient()
+  
+  // Fetch path_resources directly (single source of truth)
+  const { data: allPathResources, error: pathResourcesError } = await supabase
+    .from("path_resources")
+    .select(`
+      *,
+      resource:resources (
+        id, name, description, url, logo_url, capabilities, type
+      ),
+      upgrade_paths (
+        id,
+        path_title,
+        main_goal,
+        slug
+      )
+    `)
+    .eq("user_id", params.userId)
+    .neq("status", "removed")
+
+  if (pathResourcesError) {
+    console.error("Error fetching path_resources:", pathResourcesError)
+  }
+
+  // Deduplicate resources
+  const resourceMap: Record<string, {
+    resource: any
+    status: string
+    paths: Array<{ id: string; title: string; slug: string }>
+  }> = {}
+
+  const statusPriority: Record<string, number> = {
+    'added_paid': 6,
+    'added_free': 5,
+    'added_enrolled': 5,
+    'added_completed': 6,
+    'wishlisted': 3,
+    'suggested': 2
+  }
+
+  ;(allPathResources || []).forEach((pr: any) => {
+    const resourceId = pr.resource_id
+    const resource = pr.resource
+    const path = pr.upgrade_paths
+
+    if (!resource || !resourceId) return
+
+    if (!resourceMap[resourceId]) {
+      resourceMap[resourceId] = {
+        resource,
+        status: pr.status,
+        paths: []
+      }
+    }
+
+    if (path) {
+      const pathExists = resourceMap[resourceId].paths.some(p => p.id === path.id)
+      if (!pathExists) {
+        resourceMap[resourceId].paths.push({
+          id: path.id,
+          title: path.path_title || path.main_goal || "Untitled Path",
+          slug: path.slug || path.id
+        })
+      }
+    }
+
+    const currentPriority = statusPriority[pr.status] || 0
+    const existingPriority = statusPriority[resourceMap[resourceId].status] || 0
+    if (currentPriority > existingPriority) {
+      resourceMap[resourceId].status = pr.status
+    }
+  })
+
+  const statusMap: Record<string, string> = {
+    'added_paid': 'paying',
+    'added_free': 'free_user',
+    'added_enrolled': 'enrolled',
+    'added_completed': 'completed',
+    'wishlisted': 'wishlist',
+    'suggested': 'suggested'
+  }
+
+  const stack = Object.values(resourceMap).map((item) => ({
+    status: statusMap[item.status] || item.status,
+    resource: item.resource,
+    paths: item.paths
+  }))
+
+  // Fetch profile
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, username, is_organization, organization_name, user_id")
+    .eq("user_id", params.userId)
+    .maybeSingle()
   
   // Check if viewing own profile
-  const supabase = await createClient()
   const { data: { user: currentUser } } = await supabase.auth.getUser()
   const isOwner = currentUser?.id === params.userId
 

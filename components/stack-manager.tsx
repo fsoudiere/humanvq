@@ -10,7 +10,7 @@ interface StackManagerProps {
   resourceId: string | null
   initialStatus?: string
   isCourse?: boolean
-  pathId?: string | null // Optional: if provided, updates both user_stacks and path_resources
+  pathId?: string | null // Optional: if provided, updates path_resources for this specific path
   pathResourceStatus?: string // Current status in path_resources (suggested, added_free, added_paid, removed)
   onStatusChange?: (newStatus?: string) => void // Callback for parent to refresh data, optionally receives new status
 }
@@ -47,26 +47,44 @@ export default function StackManager({
     )
   }
 
-  // 2. Fetch Status (if not provided)
+  // 2. Fetch Status from path_resources (if not provided and pathId is available)
+  // If no pathId, we can't determine status since path_resources requires a path
   useEffect(() => {
-    if (initialStatus) return
+    if (initialStatus || !pathId) {
+      setLoading(false)
+      return
+    }
 
-    async function checkStack() {
+    async function checkPathResource() {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user || !resourceId) return
       
+      // Fetch from path_resources (single source of truth)
       const { data } = await supabase
-        .from("user_stacks")
+        .from("path_resources")
         .select("status")
-        .eq("user_id", user.id)
+        .eq("path_id", pathId)
         .eq("resource_id", resourceId)
+        .eq("user_id", user.id)
         .maybeSingle()
       
-      if (data) setStatus(data.status)
+      if (data) {
+        setPathStatus(data.status)
+        // Map path_resources status to display status
+        const statusMap: Record<string, string> = {
+          'added_paid': 'paying',
+          'added_free': 'free_user',
+          'added_enrolled': 'enrolled',
+          'added_completed': 'completed',
+          'wishlisted': isCourse ? 'todo' : 'wishlist',
+          'suggested': 'suggested'
+        }
+        setStatus(statusMap[data.status] || data.status)
+      }
       setLoading(false)
     }
-    checkStack()
-  }, [resourceId, initialStatus])
+    checkPathResource()
+  }, [resourceId, initialStatus, pathId, isCourse])
 
   // 3. Update Database - Context-Aware Logic
   const updateStack = async (newStatus: string) => {
@@ -79,64 +97,53 @@ export default function StackManager({
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    // If pathId is present: Call updateResourceStatus which handles both Path and Global Profile sync
-    if (pathId) {
-      // Map user_stacks dropdown status to path_resources status
-      // Use specific statuses: added_paid/added_free for tools, added_enrolled/added_completed for courses
-      let pathResourceStatus: 'suggested' | 'added_free' | 'added_paid' | 'added_enrolled' | 'added_completed' | 'wishlisted' | 'removed' = 'suggested'
-      
-      if (isCourse) {
-        // Courses: added_enrolled, added_completed, wishlisted, removed
-        if (newStatus === 'enrolled') pathResourceStatus = 'added_enrolled'
-        else if (newStatus === 'completed') pathResourceStatus = 'added_completed'
-        else if (newStatus === 'todo') pathResourceStatus = 'wishlisted'
-        else if (newStatus === 'remove') pathResourceStatus = 'removed'
-      } else {
-        // Tools: added_free, added_paid, wishlisted, removed
-        if (newStatus === 'paying') pathResourceStatus = 'added_paid'
-        else if (newStatus === 'free_user') pathResourceStatus = 'added_free'
-        else if (newStatus === 'wishlist') pathResourceStatus = 'wishlisted'
-        else if (newStatus === 'remove') pathResourceStatus = 'removed'
-      }
+    // path_resources is the single source of truth - always requires a pathId
+    if (!pathId) {
+      console.error("Cannot update resource: pathId is required (path_resources is the single source of truth)")
+      alert("Cannot update resource status without a path context")
+      return
+    }
 
-      // Call updateResourceStatus - handles both path_resources AND user_stacks sync
-      const result = await updateResourceStatus(pathId, resourceId, pathResourceStatus)
-      if (result.success) {
-        setPathStatus(pathResourceStatus)
-        if (newStatus === 'remove') {
-          setStatus(null)
-        } else {
-          setStatus(newStatus)
-        }
-        // Trigger parent refresh if callback provided (updates HVQ score, etc.)
-        // Pass the new pathResourceStatus so parent can update impact_weight reactively
-        if (onStatusChange) onStatusChange(pathResourceStatus)
-        router.refresh()
-      } else {
-        console.error("Failed to update resource status:", result.error)
-        alert(result.error || "Failed to update status")
-      }
+    // Map dropdown status to path_resources status
+    // Use specific statuses: added_paid/added_free for tools, added_enrolled/added_completed for courses
+    let pathResourceStatus: 'suggested' | 'added_free' | 'added_paid' | 'added_enrolled' | 'added_completed' | 'wishlisted' | 'removed' = 'suggested'
+    
+    if (isCourse) {
+      // Courses: added_enrolled, added_completed, wishlisted, removed
+      if (newStatus === 'enrolled') pathResourceStatus = 'added_enrolled'
+      else if (newStatus === 'completed') pathResourceStatus = 'added_completed'
+      else if (newStatus === 'todo') pathResourceStatus = 'wishlisted'
+      else if (newStatus === 'remove') pathResourceStatus = 'removed'
     } else {
-      // If pathId is NOT present: Call standard global update for user_stacks only
-      // This is for Profile Page context where we only manage the global stack
-      setStatus(newStatus)
-      if (newStatus === "remove") {
-        // This should not happen on Profile page (option is hidden), but handle it just in case
-        await supabase.from("user_stacks").delete().eq("user_id", user.id).eq("resource_id", resourceId)
+      // Tools: added_free, added_paid, wishlisted, removed
+      if (newStatus === 'paying') pathResourceStatus = 'added_paid'
+      else if (newStatus === 'free_user') pathResourceStatus = 'added_free'
+      else if (newStatus === 'wishlist') pathResourceStatus = 'wishlisted'
+      else if (newStatus === 'remove') pathResourceStatus = 'removed'
+    }
+
+    // Call updateResourceStatus - updates path_resources (single source of truth)
+    const result = await updateResourceStatus(pathId, resourceId, pathResourceStatus)
+    if (result.success) {
+      setPathStatus(pathResourceStatus)
+      if (newStatus === 'remove') {
         setStatus(null)
       } else {
-        await supabase.from("user_stacks").upsert({
-          user_id: user.id,
-          resource_id: resourceId,
-          status: newStatus
-        })
+        setStatus(newStatus)
       }
+      // Trigger parent refresh if callback provided (updates HVQ score, etc.)
+      // Pass the new pathResourceStatus so parent can update impact_weight reactively
+      if (onStatusChange) onStatusChange(pathResourceStatus)
+      router.refresh()
+    } else {
+      console.error("Failed to update resource status:", result.error)
+      alert(result.error || "Failed to update status")
     }
   }
 
   // Remove from path action (X button)
   // This only appears when pathId is provided (Path Page context)
-  // Crucially: This does NOT delete from user_stacks, only breaks the link to this specific Path
+  // Sets status to 'removed' in path_resources (single source of truth)
   const handleRemoveFromPath = async () => {
     if (!pathId || !resourceId) return
     
@@ -183,12 +190,11 @@ export default function StackManager({
   }
 
   // Determine current value for select
-  // If pathId is provided, show path status; otherwise show global status
-  // Map path statuses back to user_stacks statuses for the select
+  // Map path_resources status to display status for the select dropdown
   const getSelectValue = () => {
     if (!pathId) return status || ""
     
-    // Map path_resources status back to user_stacks status for select display
+    // Map path_resources status to display status for select
     if (pathStatus === 'added_paid') return 'paying'
     if (pathStatus === 'added_free') return 'free_user'
     if (pathStatus === 'added_enrolled') return 'enrolled'

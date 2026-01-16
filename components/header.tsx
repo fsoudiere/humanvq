@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { createClient } from "@/utils/supabase/server"
 import { Button } from "@/components/ui/button"
-import { LogOut, Home } from "lucide-react"
+import { LogOut, Home, Settings } from "lucide-react"
 import LogoutButton from "./logout-button"
 import { getUserDestination as getServerUserDestination } from "@/lib/get-user-destination"
 
@@ -94,6 +94,12 @@ export default async function Header() {
               <Link href={profileLink}>
                 <Button variant="ghost" size="sm" className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
                   {stackLabel} 📚
+                </Button>
+              </Link>
+              <Link href="/settings">
+                <Button variant="ghost" size="sm" className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+                  <Settings className="h-4 w-4" />
+                  Settings
                 </Button>
               </Link>
               <LogoutButton />
