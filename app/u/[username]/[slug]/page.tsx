@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { IntakeForm } from "@/components/IntakeForm"
 import { EditablePathTitle } from "@/components/editable-path-title"
 import { DeletePathButton } from "@/components/delete-path-button"
-import { SharePathButton } from "@/components/share-path-button"
+import { ShareButton } from "@/components/share-button"
 import AddToolSearch from "@/components/add-tool-search"
 import Link from "next/link"
 import { calculateHVQScore } from "@/lib/hvq-logic"
@@ -742,9 +742,11 @@ export default function UnifiedPathPage() {
             {/* Right: Action Buttons (only for owners) */}
             {isOwner && pathId && (
               <div className="flex gap-2">
-                <SharePathButton 
-                  pathId={pathId} 
-                  initialIsPublic={isPublic}
+                <ShareButton 
+                  targetType="path"
+                  targetId={pathId}
+                  isOwner={isOwner}
+                  initialVisibility={isPublic}
                   pathTitle={pathTitle}
                   userName={profileData?.full_name || undefined}
                 />

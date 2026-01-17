@@ -2,7 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server"
 import { revalidatePath } from "next/cache"
-import { slugify, generateUniqueSlug } from "@/lib/slugify"
+import { slugify } from "@/lib/slugify"
 
 export async function updatePathTitle(pathId: string, title: string) {
   const supabase = await createClient()
@@ -13,24 +13,9 @@ export async function updatePathTitle(pathId: string, title: string) {
     return { success: false, error: "User not authenticated" }
   }
 
-  // Generate slug from title
+  // Generate clean slug from title (no random IDs appended)
   const slugBase = title || "untitled-path"
-  let slug = slugify(slugBase)
-  
-  // Check for slug collisions for this user (excluding current path)
-  const { data: existingPaths } = await supabase
-    .from("upgrade_paths")
-    .select("slug")
-    .eq("user_id", user.id)
-    .neq("id", pathId)
-    .not("slug", "is", null)
-  
-  const existingSlugs = (existingPaths || []).map(p => p.slug).filter(Boolean) as string[]
-  
-  // If slug already exists, append random number
-  if (existingSlugs.includes(slug)) {
-    slug = generateUniqueSlug(slug)
-  }
+  const slug = slugify(slugBase)
 
   // Update the path title and slug (only if user owns it)
   const { error: updateError } = await supabase

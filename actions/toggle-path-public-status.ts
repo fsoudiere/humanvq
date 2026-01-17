@@ -3,19 +3,19 @@
 import { createClient } from "@/utils/supabase/server"
 import { revalidatePath } from "next/cache"
 
-export interface TogglePathPrivacyResult {
+export interface TogglePathPublicStatusResult {
   success: boolean
   error?: string
 }
 
 /**
- * Toggle the privacy (is_public) status of a path
- * Only the owner of the path can update its privacy
+ * Toggle the public (is_public) status of a path
+ * Only the owner of the path can update its public status
  */
-export async function togglePathPrivacy(
+export async function togglePathPublicStatus(
   pathId: string,
   isPublic: boolean
-): Promise<TogglePathPrivacyResult> {
+): Promise<TogglePathPublicStatusResult> {
   const supabase = await createClient()
 
   // Authenticate
@@ -27,7 +27,7 @@ export async function togglePathPrivacy(
   // First verify the path exists and belongs to the user
   const { data: path, error: pathError } = await supabase
     .from("upgrade_paths")
-    .select("user_id")
+    .select("user_id, slug")
     .eq("id", pathId)
     .single()
 
@@ -40,7 +40,7 @@ export async function togglePathPrivacy(
     return { success: false, error: "You can only update your own paths" }
   }
 
-  // Update the path visibility
+  // Update the path public status
   const { error: updateError } = await supabase
     .from("upgrade_paths")
     .update({ 
@@ -51,27 +51,23 @@ export async function togglePathPrivacy(
     .eq("user_id", user.id) // Double-check ownership
 
   if (updateError) {
-    console.error("Failed to update path privacy:", updateError)
-    return { success: false, error: "Failed to update path privacy" }
+    console.error("Failed to update path public status:", updateError)
+    return { success: false, error: "Failed to update path public status" }
   }
 
   // Revalidate relevant paths
-  // Fetch slug and username for revalidation
-  const { data: pathWithSlug } = await supabase
-    .from("upgrade_paths")
-    .select("slug")
-    .eq("id", pathId)
-    .single()
-  
+  // Fetch username for revalidation
   const { data: profile } = await supabase
     .from("profiles")
     .select("username")
     .eq("user_id", user.id)
     .maybeSingle()
   
-  if (pathWithSlug?.slug && profile?.username) {
-    revalidatePath(`/u/${profile.username}/${pathWithSlug.slug}`)
+  // Revalidate path-specific route if slug exists
+  if (path.slug && profile?.username) {
+    revalidatePath(`/u/${profile.username}/${path.slug}`)
   }
+  
   // Revalidate unified route (username or userId fallback)
   const usernameOrId = profile?.username || user.id
   revalidatePath(`/u/${usernameOrId}`)

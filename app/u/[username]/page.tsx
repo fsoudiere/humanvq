@@ -1,5 +1,5 @@
 import { createClient } from "@/utils/supabase/server"
-import ShareStackButton from "@/components/share-stack-button"
+import { ShareButton } from "@/components/share-button"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { BookOpen, Wrench, GraduationCap, CheckCircle2, Clock, ListTodo, Target, ArrowUp, ArrowDown, Settings } from "lucide-react"
@@ -7,7 +7,6 @@ import { Metadata } from "next"
 import ResourceIcon from "@/components/resource-icon"
 import { Card, CardContent } from "@/components/ui/card"
 import { DeletePathButton } from "@/components/delete-path-button"
-import { TogglePathVisibility } from "@/components/toggle-path-visibility"
 import TierSection from "@/components/tier-section"
 import CourseGroup from "@/components/course-group"
 
@@ -374,13 +373,17 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
             </div>
 
             <div className="flex justify-center gap-3 mt-6 mb-10">
-              <ShareStackButton
-                userId={targetUserId}
+              <ShareButton
+                targetType="stack"
+                targetId={targetUserId}
+                isOwner={isOwner}
                 userName={
                   (displayProfile?.is_organization && displayProfile?.organization_name)
                     ? displayProfile.organization_name
                     : displayProfile?.full_name || "User"
                 }
+                variant="default"
+                size="default"
               />
               <Link href={`/u/${displayUsername}/create`}>
                 <Button variant="outline" className="rounded-full">+ New Path</Button>
@@ -525,7 +528,13 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                           {/* Action Buttons - Only show for owner */}
                           {isOwner && (
                             <div className="flex gap-2 mb-3">
-                              <TogglePathVisibility pathId={path.id} initialIsPublic={path.is_public || false} />
+                              <ShareButton
+                                targetType="path"
+                                targetId={path.id}
+                                isOwner={isOwner}
+                                initialVisibility={path.is_public || false}
+                                showToggleOnly={true}
+                              />
                               <DeletePathButton pathId={path.id} />
                             </div>
                           )}

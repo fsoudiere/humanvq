@@ -161,3 +161,66 @@ export async function ensureProfile(
 
   return { success: false, error: "Failed to ensure profile after all retries" }
 }
+
+/**
+ * Server action to determine the appropriate redirect destination for a logged-in user.
+ * Can be called from both server and client components.
+ * 
+ * Priority:
+ * - Scenario A (The Pro): Has username → /u/[username]
+ * - Scenario B (The Newbie): No username but has paths → /u/[userId]
+ * - Scenario C (The Blank Slate): No username and no paths → /u/[userId]/create
+ * 
+ * @param userId - Optional user ID. If not provided, gets the authenticated user internally.
+ * @returns The destination path string, or null if user is not authenticated
+ */
+export async function getUserDestination(userId?: string): Promise<string | null> {
+  const supabase = await createClient()
+  
+  let finalUserId: string | null = null
+  
+  if (userId) {
+    // Server component usage: userId provided
+    finalUserId = userId
+  } else {
+    // Client component usage: get user internally
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return null
+    }
+    finalUserId = user.id
+  }
+  
+  if (!finalUserId) {
+    return null
+  }
+  
+  // Fetch profile by user_id
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("user_id", finalUserId)
+    .maybeSingle()
+  
+  // Scenario A: User has username → redirect to /u/[username]
+  if (profile?.username) {
+    return `/u/${profile.username}`
+  }
+  
+  // Check if user has any paths
+  const { data: paths } = await supabase
+    .from("upgrade_paths")
+    .select("id")
+    .eq("user_id", finalUserId)
+    .limit(1)
+  
+  const hasPaths = paths && paths.length > 0
+  
+  // Scenario B: No username but has paths → redirect to /u/[userId]
+  if (hasPaths) {
+    return `/u/${finalUserId}`
+  }
+  
+  // Scenario C: No username and no paths → redirect to /u/[userId]/create
+  return `/u/${finalUserId}/create`
+}

@@ -3,7 +3,7 @@ import { createClient } from "@/utils/supabase/server"
 import { Button } from "@/components/ui/button"
 import { LogOut, Home, Settings, Plus } from "lucide-react"
 import LogoutButton from "./logout-button"
-import { getUserDestination as getServerUserDestination } from "@/lib/get-user-destination"
+import { getUserDestination } from "@/actions/profiles"
 
 export default async function Header() {
   const supabase = await createClient()
@@ -61,7 +61,7 @@ export default async function Header() {
   const createPathLink = profile?.username ? `/u/${profile.username}/create` : `/u/${user.id}/create`
   
   // Get home destination using the helper function
-  const homeDestination = await getServerUserDestination(user.id)
+  const homeDestination = await getUserDestination(user.id)
   
   console.log("🔍 Header - Auth & Profile:", {
     userId: user.id,

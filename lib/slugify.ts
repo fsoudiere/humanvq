@@ -36,18 +36,3 @@ export function generateUniqueSlug(baseSlug: string): string {
   return `${baseSlug}-${randomSuffix}`
 }
 
-/**
- * Creates a slug from text and handles collision checking
- * This is a helper that combines slugify with collision handling
- * Note: You still need to check for collisions in your database queries
- */
-export function createSlug(text: string, existingSlugs: string[] = []): string {
-  let slug = slugify(text)
-  
-  // If slug already exists in the provided list, append random number
-  if (existingSlugs.includes(slug)) {
-    slug = generateUniqueSlug(slug)
-  }
-  
-  return slug
-}
