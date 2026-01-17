@@ -49,6 +49,7 @@ export async function getUserDestination(): Promise<string | null> {
     return `/u/${user.id}`
   }
   
-  // Scenario C: No username and no paths → redirect to /settings to set username first
-  return `/settings`
+  // Scenario C: No username and no paths → redirect to /create to generate first path
+  // Use user ID for the create route
+  return `/u/${user.id}/create`
 }

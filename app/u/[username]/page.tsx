@@ -128,7 +128,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
 
   // STEP 5: Fetch path_resources directly (single source of truth)
   // Query by user_id to get all resources across all paths
-  const { data: allPathResources, error: pathResourcesError } = await supabase
+  const { data: allPathResourcesRaw, error: pathResourcesError } = await supabase
     .from("path_resources")
     .select(`
       *,
@@ -143,7 +143,13 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
       )
     `)
     .eq("user_id", targetUserId)
-    .neq("status", "removed") // Exclude removed resources
+    .neq("status", "removed") // Exclude removed resources at query level
+
+  // Filter out "suggested" status - resources with status "suggested" should not appear on profile
+  // They only appear after user explicitly adds them (status changes to wishlisted/active/etc)
+  const allPathResources = (allPathResourcesRaw || []).filter(
+    (pr: any) => pr.status !== "suggested"
+  )
 
   // Debug log to see if data is being returned
   console.log('Path Resources found for user:', allPathResources?.length || 0)
@@ -199,18 +205,10 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   })
 
   // STEP 7: Convert map to array format matching existing structure
-  // Map path_resources status to display status for compatibility
-  const statusMap: Record<string, string> = {
-    'added_paid': 'paying',
-    'added_free': 'free_user',
-    'added_enrolled': 'enrolled',
-    'added_completed': 'completed',
-    'wishlisted': 'wishlist',
-    'suggested': 'suggested'
-  }
-
+  // Keep database statuses as-is (added_paid, added_free, added_enrolled, added_completed, wishlisted, removed, suggested)
+  // These statuses have impact_weight used in score calculations - don't map them
   const stack = Object.values(resourceMap).map((item) => ({
-    status: statusMap[item.status] || item.status,
+    status: item.status, // Keep database status (added_paid, added_free, added_enrolled, added_completed, wishlisted, removed, suggested)
     resource: item.resource,
     paths: item.paths
   }))
@@ -268,34 +266,46 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   console.log('Tool statuses:', tools.map((t: any) => ({ name: t.resource?.name, status: t.status })))
   console.log('Course statuses:', courses.map((c: any) => ({ name: c.resource?.name, status: c.status })))
 
-  // Group Tools - include all non-removed statuses
-  const payingTools = tools.filter((i: any) => i.status === 'paying')
-  const freeTools = tools.filter((i: any) => i.status === 'free_user')
-  const wishlistTools = tools.filter((i: any) => i.status === 'wishlist')
-  const churnedTools = tools.filter((i: any) => i.status === 'churned')
-  // Catch-all for any unmapped tool statuses
+  // Group Tools using database statuses:
+  // - added_paid: tool is added with paid tier
+  // - added_free: tool is added with free tier
+  // - wishlisted: tool is wishlisted (shared status)
+  // Note: removed and suggested are already filtered out above
+  const payingTools = tools.filter((i: any) => i.status === 'added_paid')
+  const freeTools = tools.filter((i: any) => i.status === 'added_free')
+  const wishlistTools = tools.filter((i: any) => i.status === 'wishlisted')
+
+  // Catch-all for any unmapped tool statuses (should not happen with proper status management)
+  // Exclude removed and suggested - these should not appear on profile
   const otherTools = tools.filter((i: any) =>
-    i.status !== 'paying' &&
-    i.status !== 'free_user' &&
-    i.status !== 'wishlist' &&
-    i.status !== 'churned' &&
-    i.status !== 'removed'
+    i.status !== 'added_paid' &&
+    i.status !== 'added_free' &&
+    i.status !== 'wishlisted' &&
+    i.status !== 'removed' &&
+    i.status !== 'suggested'
   )
 
-  // Group Courses - include all non-removed statuses
-  const enrolledCourses = courses.filter((i: any) => i.status === 'enrolled')
-  const completedCourses = courses.filter((i: any) => i.status === 'completed')
-  const todoCourses = courses.filter((i: any) => i.status === 'todo')
-  // Catch-all for any unmapped course statuses
+  // Group Courses using database statuses:
+  // - added_enrolled: course is enrolled/in progress
+  // - added_completed: course is completed
+  // - wishlisted: course is wishlisted (shared status, displayed as "todo" in UI)
+  // Note: removed and suggested are already filtered out above
+  const enrolledCourses = courses.filter((i: any) => i.status === 'added_enrolled')
+  const completedCourses = courses.filter((i: any) => i.status === 'added_completed')
+  const wishlistCourses = courses.filter((i: any) => i.status === 'wishlisted') // Displayed as "todo" in UI
+
+  // Catch-all for any unmapped course statuses (should not happen with proper status management)
+  // Exclude removed and suggested - these should not appear on profile
   const otherCourses = courses.filter((i: any) =>
-    i.status !== 'enrolled' &&
-    i.status !== 'completed' &&
-    i.status !== 'todo' &&
-    i.status !== 'removed'
+    i.status !== 'added_enrolled' &&
+    i.status !== 'added_completed' &&
+    i.status !== 'wishlisted' &&
+    i.status !== 'removed' &&
+    i.status !== 'suggested'
   )
 
-  console.log('Grouped counts - paying:', payingTools.length, 'free:', freeTools.length, 'wishlist:', wishlistTools.length, 'churned:', churnedTools.length, 'other tools:', otherTools.length)
-  console.log('Grouped counts - enrolled:', enrolledCourses.length, 'completed:', completedCourses.length, 'todo:', todoCourses.length, 'other courses:', otherCourses.length)
+  console.log('Grouped counts - paying:', payingTools.length, 'free:', freeTools.length, 'wishlist:', wishlistTools.length, 'other tools:', otherTools.length)
+  console.log('Grouped counts - enrolled:', enrolledCourses.length, 'completed:', completedCourses.length, 'wishlisted:', wishlistCourses.length, 'other courses:', otherCourses.length)
 
   // Filter paths based on ownership
   const displayPaths = isOwner ? paths : paths.filter((p: any) => p.is_public === true)
@@ -398,8 +408,8 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
               </div>
               {globalDeltaPercent !== null && globalDeltaPercent !== 0 && (
                 <div className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-semibold ${globalDeltaPercent > 0
-                    ? 'bg-emerald-500 text-white dark:bg-emerald-600 shadow-lg shadow-emerald-500/50'
-                    : 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400'
+                  ? 'bg-emerald-500 text-white dark:bg-emerald-600 shadow-lg shadow-emerald-500/50'
+                  : 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400'
                   }`}>
                   {globalDeltaPercent > 0 ? (
                     <ArrowUp className="w-4 h-4" />
@@ -507,8 +517,8 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                 return (
                   <Link key={path.id} href={pathUrl}>
                     <Card className={`h-full hover:shadow-lg transition-shadow cursor-pointer relative ${isLowLeverage
-                        ? 'border-2 border-red-300 hover:border-red-400 dark:border-red-700 dark:hover:border-red-600'
-                        : 'border-zinc-200 hover:border-zinc-300'
+                      ? 'border-2 border-red-300 hover:border-red-400 dark:border-red-700 dark:hover:border-red-600'
+                      : 'border-zinc-200 hover:border-zinc-300'
                       }`}>
                       <CardContent className="p-6">
                         <div className="flex flex-col h-full">
@@ -589,10 +599,10 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                             {hasScore && dailyChangePercent !== null && (
                               <div className="mt-3 flex items-center gap-2">
                                 <div className={`flex items-center gap-1 text-xs font-semibold ${dailyChangePercent > 0
-                                    ? 'text-emerald-600 dark:text-emerald-400'
-                                    : dailyChangePercent < 0
-                                      ? 'text-red-600 dark:text-red-400'
-                                      : 'text-zinc-500 dark:text-zinc-400'
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : dailyChangePercent < 0
+                                    ? 'text-red-600 dark:text-red-400'
+                                    : 'text-zinc-500 dark:text-zinc-400'
                                   }`}>
                                   {dailyChangePercent > 0 ? (
                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -639,7 +649,6 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
               <TierSection title="💸 Essential (Paying)" items={payingTools} isOwner={isOwner} username={displayUsername} paths={paths} />
               <TierSection title="⚡ Daily Drivers (Free)" items={freeTools} isOwner={isOwner} username={displayUsername} paths={paths} />
               <TierSection title="🔖 Wishlist" items={wishlistTools} isOwner={isOwner} username={displayUsername} paths={paths} />
-              {isOwner && <TierSection title="💀 Churned" items={churnedTools} isOwner={isOwner} username={displayUsername} paths={paths} />}
             </div>
           </section>
         )}
@@ -679,11 +688,11 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                 />
               )}
 
-              {/* To Do */}
-              {todoCourses.length > 0 && (
+              {/* Wishlisted / To Do */}
+              {wishlistCourses.length > 0 && (
                 <CourseGroup
                   title="📋 To Do List"
-                  items={todoCourses}
+                  items={wishlistCourses}
                   isOwner={isOwner}
                   username={displayUsername}
                   icon={<ListTodo className="w-4 h-4 text-gray-500" />}

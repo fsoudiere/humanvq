@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { PathGenerationModal } from "@/components/path-generation-modal"
 import {
   Form,
   FormControl,
@@ -67,6 +68,7 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
   const [waitingPathId, setWaitingPathId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showCustomRole, setShowCustomRole] = useState(false)
+  const [generationStep, setGenerationStep] = useState(1)
   const isEditMode = !!pathId && !!initialData
 
   // Initialize form with initialData if provided, otherwise empty
@@ -106,6 +108,27 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
       setShowCustomRole(!isPredefined)
     }
   }, [isEditMode, initialData])
+
+  // Animate generation steps
+  useEffect(() => {
+    if (!isWaitingForPath) {
+      setGenerationStep(1)
+      return
+    }
+
+    // Cycle through steps with delays
+    const stepDelays = [1000, 3000, 5000, 7000] // Show each step for progressively longer
+    
+    let currentStep = 1
+    const stepInterval = setInterval(() => {
+      currentStep++
+      if (currentStep <= 4) {
+        setGenerationStep(currentStep)
+      }
+    }, 2000) // Change step every 2 seconds
+
+    return () => clearInterval(stepInterval)
+  }, [isWaitingForPath])
 
   // Poll for slug readiness (Supabase trigger sets slug when path_title is processed)
   useEffect(() => {
@@ -154,6 +177,8 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
 
       // Keep polling as long as slug is null (Supabase trigger hasn't finished yet)
       if (!path.slug) {
+        // Update to final step while waiting
+        setGenerationStep(4)
         // Continue polling - slug is null, waiting for Supabase trigger to complete
         if (pollCount >= maxPolls) {
           setError("Path generation timed out. Please try again.")
@@ -163,7 +188,8 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
       }
       
       // Green Light: Slug is non-null, meaning Supabase trigger has finished
-      // Redirect immediately using router.replace()
+      // Show completion step briefly before redirect
+      setGenerationStep(4)
       console.log(`✅ Path ready! Slug: "${path.slug}"`)
       
       // Fetch username for the route
@@ -249,24 +275,6 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
     }
   }
 
-  // Show loading overlay when waiting for path to be ready
-  if (isWaitingForPath) {
-    return (
-      <div className="flex min-h-[400px] flex-col items-center justify-center gap-4">
-        <div className="flex gap-2">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:0ms]"></div>
-          <div className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms]"></div>
-          <div className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms]"></div>
-        </div>
-        <p className="text-lg text-zinc-600 dark:text-zinc-400">
-          Generating your upgrade path...
-        </p>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          This usually takes 10-30 seconds
-        </p>
-      </div>
-    )
-  }
 
   const formContent = (
     <Form {...form}>
@@ -413,14 +421,21 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
     )
 
   if (!showCard) {
-    return formContent
+    return (
+      <>
+        <PathGenerationModal isOpen={isWaitingForPath} currentStep={generationStep} />
+        {formContent}
+      </>
+    )
   }
 
   return (
-    <Card className="w-full max-w-2xl border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <CardHeader>
-        <CardTitle className="text-2xl font-light tracking-tight">
-          Tell us about yourself
+    <>
+      <PathGenerationModal isOpen={isWaitingForPath} currentStep={generationStep} />
+      <Card className="w-full max-w-2xl border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <CardHeader>
+          <CardTitle className="text-2xl font-light tracking-tight">
+            Tell us about yourself
         </CardTitle>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Select your role or enter a custom one to get started.
@@ -430,5 +445,6 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
         {formContent}
       </CardContent>
     </Card>
+    </>
   )
 }
