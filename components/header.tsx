@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { createClient } from "@/utils/supabase/server"
 import { Button } from "@/components/ui/button"
-import { LogOut, Home, Settings } from "lucide-react"
+import { LogOut, Home, Settings, Plus } from "lucide-react"
 import LogoutButton from "./logout-button"
 import { getUserDestination as getServerUserDestination } from "@/lib/get-user-destination"
 
@@ -57,6 +57,9 @@ export default async function Header() {
   // Use username for link if available, otherwise fall back to user_id (UUID)
   const profileLink = profile?.username ? `/u/${profile.username}` : `/u/${user.id}`
   
+  // Create link for new stack/path
+  const createPathLink = profile?.username ? `/u/${profile.username}/create` : `/u/${user.id}/create`
+  
   // Get home destination using the helper function
   const homeDestination = await getServerUserDestination(user.id)
   
@@ -94,6 +97,12 @@ export default async function Header() {
               <Link href={profileLink}>
                 <Button variant="ghost" size="sm" className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
                   {stackLabel} 📚
+                </Button>
+              </Link>
+              <Link href={createPathLink}>
+                <Button variant="ghost" size="sm" className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+                  <Plus className="h-4 w-4" />
+                  New Stack
                 </Button>
               </Link>
               <Link href="/settings">

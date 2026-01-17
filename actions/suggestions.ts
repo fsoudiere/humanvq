@@ -2,11 +2,17 @@
 
 import { createClient } from "@/utils/supabase/server"
 
-export async function submitSuggestion(data: { name: string; url: string; type: string }) {
+export interface SubmitSuggestionResult {
+  success: boolean
+  error?: string
+  message?: string
+}
+
+export async function submitSuggestion(data: { name: string; url: string; type: string }): Promise<SubmitSuggestionResult> {
   const supabase = await createClient()
-  
+
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: "Not authenticated" }
+  if (!user) return { success: false, error: "Not authenticated" }
 
   // 1. Log to your DB as a backup/audit trail
   await supabase.from("resource_suggestions").insert({
@@ -37,7 +43,7 @@ export async function submitSuggestion(data: { name: string; url: string; type: 
     })
 
     if (!response.ok) throw new Error("n8n failed")
-    
+
     return { success: true }
   } catch (err) {
     console.error("Automation error:", err)

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Bot, GraduationCap, Footprints, Calendar, Settings, LogOut, Target, Plus } from "lucide-react"
+import { Bot, GraduationCap, Footprints, Calendar, Settings, Target } from "lucide-react"
 import ResourceIcon from "@/components/resource-icon"
 import { createClient } from "@/utils/supabase/client"
 import StackManager from "@/components/stack-manager"
@@ -536,15 +536,6 @@ export default function UnifiedPathPage() {
     }
   }, [state, isPolling, isOwner, pathId])
 
-  const handleNewPath = () => {
-    if (!username) return
-    setIsPolling(false)
-    setState("results")
-    setUpgradeData(null)
-    setErrorMessage(null)
-    router.push(`/u/${username}/create`)
-  }
-
   const handleStrategyUpdate = async () => {
     if (pathId) {
       const supabase = createClient()
@@ -563,20 +554,6 @@ export default function UnifiedPathPage() {
       }
     }
     setEditDialogOpen(false)
-  }
-
-  const handleLogout = async () => {
-    try {
-      const supabase = createClient()
-      const { error } = await supabase.auth.signOut()
-      if (error) {
-        console.error("Error signing out:", error)
-      } else {
-        router.push("/")
-      }
-    } catch (error) {
-      console.error("Error signing out:", error)
-    }
   }
 
   // Unified function to update Supabase with path data
@@ -799,7 +776,12 @@ export default function UnifiedPathPage() {
             {/* Right: Action Buttons (only for owners) */}
             {isOwner && pathId && (
               <div className="flex gap-2">
-                <SharePathButton pathId={pathId} initialIsPublic={isPublic} />
+                <SharePathButton 
+                  pathId={pathId} 
+                  initialIsPublic={isPublic}
+                  pathTitle={pathTitle}
+                  userName={profileData?.full_name || undefined}
+                />
                 
                 <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
                   <DialogTrigger asChild>
@@ -836,30 +818,6 @@ export default function UnifiedPathPage() {
           </div>
         </div>
 
-        {/* Action Buttons (only for owners) */}
-        {isOwner && (
-          <div className="mb-8 flex justify-end gap-2">
-            <Button
-              onClick={handleNewPath}
-              variant="ghost"
-              size="sm"
-              className="gap-2 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-            >
-              <Plus className="h-4 w-4" />
-              New Path
-            </Button>
-            
-            <Button
-              onClick={handleLogout}
-              variant="outline"
-              size="sm"
-              className="gap-2"
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </Button>
-          </div>
-        )}
 
         {/* Strategy Info */}
         {(strategyData.role || strategyData.main_goal || strategyData.context) && (

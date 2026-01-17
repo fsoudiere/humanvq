@@ -24,7 +24,7 @@ function isUUID(str: string): boolean {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { username } = await params
   const supabase = await createClient()
-  
+
   // Try to fetch profile by username first, then by user_id if it's a UUID
   let profile = null
   if (isUUID(username)) {
@@ -50,7 +50,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     : profile?.full_name || username
   const stackLabel = profile?.is_organization ? "Company Stack" : "AI Stack"
   const title = `${displayName}'s ${stackLabel}`
-  const description = profile?.is_organization 
+  const description = profile?.is_organization
     ? `Check out ${profile.organization_name}'s public upgrade paths and AI stack.`
     : `Check out ${profile?.full_name || username}'s public upgrade paths and AI stack.`
 
@@ -73,14 +73,14 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function UnifiedUsernamePage({ params }: PageProps) {
   const { username } = await params
   const supabase = await createClient()
-  
+
   // STEP 1: Auth First - Always get current user from auth first
   const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser()
-  
+
   // STEP 2: Fetch profile by username or user_id (UUID fallback)
   let profile = null
   let targetUserId: string | null = null
-  
+
   if (isUUID(username)) {
     // If it's a UUID, fetch by user_id
     const { data } = await supabase
@@ -123,7 +123,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
     .select("*")
     .eq("user_id", targetUserId)
     .order('created_at', { ascending: false })
-  
+
   const paths = pathsData || []
 
   // STEP 5: Fetch path_resources directly (single source of truth)
@@ -216,26 +216,26 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   }))
 
   console.log('Final stack items:', stack.length)
-  console.log('Stack items with statuses:', stack.map((s: any) => ({ 
-    name: s.resource?.name, 
-    status: s.status, 
-    originalStatus: resourceMap[s.resource?.id]?.status 
+  console.log('Stack items with statuses:', stack.map((s: any) => ({
+    name: s.resource?.name,
+    status: s.status,
+    originalStatus: resourceMap[s.resource?.id]?.status
   })))
 
   // Get username for unified routes (use profile username or fallback to user_id)
   const displayUsername = profile.username || targetUserId
-  
+
   // STEP 5: Fail-Safe - If profile is null but we have auth user, use user metadata
   // Only use this for display purposes when viewing own stack
   let displayProfile: any = profile
-  
+
   if (!profile && isOwner && currentUser) {
     // Create a fallback profile object from user metadata only if profile doesn't exist
     displayProfile = {
-      full_name: currentUser.user_metadata?.full_name || 
-                 currentUser.user_metadata?.name || 
-                 currentUser.email?.split('@')[0] || 
-                 "User",
+      full_name: currentUser.user_metadata?.full_name ||
+        currentUser.user_metadata?.name ||
+        currentUser.email?.split('@')[0] ||
+        "User",
       is_organization: false,
       organization_name: null,
       user_id: currentUser.id,
@@ -259,7 +259,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   }
 
   // --- SEPARATE & GROUP DATA ---
-  
+
   // Split into Arrays
   const courses = stack.filter((i: any) => i.resource?.type === 'human_course')
   const tools = stack.filter((i: any) => i.resource?.type !== 'human_course')
@@ -274,10 +274,10 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   const wishlistTools = tools.filter((i: any) => i.status === 'wishlist')
   const churnedTools = tools.filter((i: any) => i.status === 'churned')
   // Catch-all for any unmapped tool statuses
-  const otherTools = tools.filter((i: any) => 
-    i.status !== 'paying' && 
-    i.status !== 'free_user' && 
-    i.status !== 'wishlist' && 
+  const otherTools = tools.filter((i: any) =>
+    i.status !== 'paying' &&
+    i.status !== 'free_user' &&
+    i.status !== 'wishlist' &&
     i.status !== 'churned' &&
     i.status !== 'removed'
   )
@@ -287,9 +287,9 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   const completedCourses = courses.filter((i: any) => i.status === 'completed')
   const todoCourses = courses.filter((i: any) => i.status === 'todo')
   // Catch-all for any unmapped course statuses
-  const otherCourses = courses.filter((i: any) => 
-    i.status !== 'enrolled' && 
-    i.status !== 'completed' && 
+  const otherCourses = courses.filter((i: any) =>
+    i.status !== 'enrolled' &&
+    i.status !== 'completed' &&
     i.status !== 'todo' &&
     i.status !== 'removed'
   )
@@ -306,17 +306,17 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   const currentPathScores = displayPaths
     .filter((path: any) => path.current_hvq_score !== null && path.current_hvq_score !== undefined)
     .map((path: any) => path.current_hvq_score)
-  
+
   const previousPathScores = displayPaths
     .filter((path: any) => path.previous_hvq_score !== null && path.previous_hvq_score !== undefined)
     .map((path: any) => path.previous_hvq_score)
-  
+
   // Calculate average from saved scores in database (not calculated in frontend)
   // If it shows 100, it means the save in the Path page failed (no scores saved yet)
   const globalAverage = currentPathScores.length > 0
     ? Math.round(currentPathScores.reduce((sum: number, score: number) => sum + score, 0) / currentPathScores.length)
     : 100
-  
+
   // Calculate Delta: Compare average of current_hvq_score vs average of previous_hvq_score
   let globalDeltaPercent = null
   if (previousPathScores.length > 0 && currentPathScores.length > 0) {
@@ -335,7 +335,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
 
   return (
     <div id="stack-capture" className="max-w-4xl mx-auto py-12 px-4">
-      
+
       {/* HEADER */}
       <div className="text-center mb-12">
         <div className="flex items-center justify-between mb-4">
@@ -354,7 +354,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
             )}
           </div>
         </div>
-        
+
         {isOwner ? (
           <>
             <div className="hide-on-export mt-4 flex flex-col items-center gap-2">
@@ -364,13 +364,13 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
             </div>
 
             <div className="flex justify-center gap-3 mt-6 mb-10">
-              <ShareStackButton 
-                userId={targetUserId} 
+              <ShareStackButton
+                userId={targetUserId}
                 userName={
                   (displayProfile?.is_organization && displayProfile?.organization_name)
                     ? displayProfile.organization_name
                     : displayProfile?.full_name || "User"
-                } 
+                }
               />
               <Link href={`/u/${displayUsername}/create`}>
                 <Button variant="outline" className="rounded-full">+ New Path</Button>
@@ -397,11 +397,10 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                 {globalAverage}
               </div>
               {globalDeltaPercent !== null && globalDeltaPercent !== 0 && (
-                <div className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-semibold ${
-                  globalDeltaPercent > 0
+                <div className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-semibold ${globalDeltaPercent > 0
                     ? 'bg-emerald-500 text-white dark:bg-emerald-600 shadow-lg shadow-emerald-500/50'
                     : 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400'
-                }`}>
+                  }`}>
                   {globalDeltaPercent > 0 ? (
                     <ArrowUp className="w-4 h-4" />
                   ) : (
@@ -414,9 +413,9 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
               )}
             </div>
             <div className="text-xs text-blue-600 dark:text-blue-400">
-              {currentPathScores.length > 0 
+              {currentPathScores.length > 0
                 ? `Average of ${currentPathScores.length} ${currentPathScores.length === 1 ? 'path' : 'paths'} (from database)`
-                : globalAverage === 100 
+                : globalAverage === 100
                   ? 'Base score (100) - indicates no paths saved scores yet'
                   : 'Base human score (no paths yet)'
               }
@@ -426,37 +425,37 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
       </div>
 
       <div className="space-y-20">
-        
+
         {/* --- SECTION 0: UPGRADE PATHS --- */}
         {displayPaths.length > 0 && (
           <section>
             <div className="flex items-center gap-2 mb-8 border-b pb-4">
               <Target className="w-6 h-6 text-zinc-400" />
               <h2 className="text-2xl font-bold text-zinc-900">
-                {isOwner 
+                {isOwner
                   ? (displayProfile?.is_organization ? "Company Upgrade Paths" : "Your Upgrade Paths")
                   : (profile.is_organization ? "Company Upgrade Paths" : "Upgrade Paths")
                 }
               </h2>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {displayPaths.map((path: any) => {
                 // Get path_title or fallback to main_goal
                 const displayTitle = path.path_title || path.main_goal || "Untitled Path"
                 const createdDate = new Date(path.created_at)
-                const formattedDate = createdDate.toLocaleDateString('en-US', { 
-                  month: 'short', 
-                  day: 'numeric', 
-                  year: 'numeric' 
+                const formattedDate = createdDate.toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric'
                 })
-                
+
                 // Get score from database (current_hvq_score) - no calculation needed
                 // Profile Sync: Display current_hvq_score and use previous_hvq_score for 'Daily Change %'
                 const score = path.current_hvq_score ?? null
                 const hasScore = score !== null
                 const displayScore = score ?? 100 // Default for calculations
-                
+
                 // Calculate daily trend change using previous_hvq_score
                 const previousScore = path.previous_hvq_score ?? null
                 let dailyChangePercent = null
@@ -472,12 +471,12 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                     dailyChangePercent = Math.round(estimatedDailyChange * 10) / 10
                   }
                 }
-                
+
                 // Determine score badge color and label
                 let scoreBadgeClass = ""
                 let scoreLabel = ""
                 let scoreLabelClass = "text-zinc-500 dark:text-zinc-400"
-                
+
                 if (hasScore) {
                   if (displayScore < 120) {
                     scoreBadgeClass = "bg-red-100 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800"
@@ -493,25 +492,24 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                     scoreLabelClass = "text-emerald-600 dark:text-emerald-400"
                   }
                 }
-                
+
                 // Check if high priority (low score AND high importance_weight)
                 const importanceWeight = path.importance_weight ?? 0
                 const isHighPriority = hasScore && displayScore < 120 && importanceWeight > 7
-                
+
                 // Add warning border for low leverage paths
                 const isLowLeverage = hasScore && displayScore < 120
-                
+
                 // Build slug-based URL
                 const pathSlug = path.slug || path.id // Fallback to id if slug is missing
                 const pathUrl = `/u/${displayUsername}/${pathSlug}`
-                
+
                 return (
                   <Link key={path.id} href={pathUrl}>
-                    <Card className={`h-full hover:shadow-lg transition-shadow cursor-pointer relative ${
-                      isLowLeverage 
-                        ? 'border-2 border-red-300 hover:border-red-400 dark:border-red-700 dark:hover:border-red-600' 
+                    <Card className={`h-full hover:shadow-lg transition-shadow cursor-pointer relative ${isLowLeverage
+                        ? 'border-2 border-red-300 hover:border-red-400 dark:border-red-700 dark:hover:border-red-600'
                         : 'border-zinc-200 hover:border-zinc-300'
-                    }`}>
+                      }`}>
                       <CardContent className="p-6">
                         <div className="flex flex-col h-full">
                           {/* Action Buttons - Only show for owner */}
@@ -521,7 +519,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                               <DeletePathButton pathId={path.id} />
                             </div>
                           )}
-                          
+
                           {/* Header with Score Badge */}
                           <div className="mb-3 relative">
                             {/* Score Badge - Top Right */}
@@ -530,14 +528,14 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                                 {score}
                               </div>
                             )}
-                            
+
                             {/* High Priority Tag */}
                             {isHighPriority && (
                               <div className="absolute top-0 left-0 px-2 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-800">
                                 High Priority
                               </div>
                             )}
-                            
+
                             <div className={`text-xs text-zinc-500 dark:text-zinc-400 mb-2 ${isHighPriority ? 'mt-8' : ''}`}>
                               {formattedDate}
                             </div>
@@ -551,7 +549,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                               </div>
                             )}
                           </div>
-                          
+
                           {/* Path Details */}
                           <div className="flex-1 space-y-2 mb-4">
                             {path.main_goal && (
@@ -559,7 +557,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                                 {path.main_goal}
                               </p>
                             )}
-                            
+
                             {path.role && (
                               <div className="flex items-center gap-1">
                                 <span className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -568,7 +566,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                               </div>
                             )}
                           </div>
-                          
+
                           {/* Footer */}
                           <div className="mt-auto pt-4 border-t border-zinc-100 dark:border-zinc-800">
                             <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
@@ -586,17 +584,16 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                                 ⏳ Generating...
                               </div>
                             )}
-                            
+
                             {/* Daily Trend Change Indicator */}
                             {hasScore && dailyChangePercent !== null && (
                               <div className="mt-3 flex items-center gap-2">
-                                <div className={`flex items-center gap-1 text-xs font-semibold ${
-                                  dailyChangePercent > 0 
-                                    ? 'text-emerald-600 dark:text-emerald-400' 
-                                    : dailyChangePercent < 0 
-                                    ? 'text-red-600 dark:text-red-400' 
-                                    : 'text-zinc-500 dark:text-zinc-400'
-                                }`}>
+                                <div className={`flex items-center gap-1 text-xs font-semibold ${dailyChangePercent > 0
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : dailyChangePercent < 0
+                                      ? 'text-red-600 dark:text-red-400'
+                                      : 'text-zinc-500 dark:text-zinc-400'
+                                  }`}>
                                   {dailyChangePercent > 0 ? (
                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -629,7 +626,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
             </div>
           </section>
         )}
-        
+
         {/* --- SECTION 1: AI TOOLS --- */}
         {tools.length > 0 && (
           <section>
@@ -637,7 +634,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
               <Wrench className="w-6 h-6 text-zinc-400" />
               <h2 className="text-2xl font-bold text-zinc-900">AI Tool Arsenal</h2>
             </div>
-            
+
             <div className="space-y-8">
               <TierSection title="💸 Essential (Paying)" items={payingTools} isOwner={isOwner} username={displayUsername} paths={paths} />
               <TierSection title="⚡ Daily Drivers (Free)" items={freeTools} isOwner={isOwner} username={displayUsername} paths={paths} />
@@ -654,14 +651,14 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
               <GraduationCap className="w-6 h-6 text-blue-600" />
               <h2 className="text-2xl font-bold text-zinc-900">Knowledge Base</h2>
             </div>
-            
+
             <div className="grid grid-cols-1 gap-6">
               {/* In Progress */}
               {enrolledCourses.length > 0 && (
-                <CourseGroup 
-                  title="📖 In Progress" 
-                  items={enrolledCourses} 
-                  isOwner={isOwner} 
+                <CourseGroup
+                  title="📖 In Progress"
+                  items={enrolledCourses}
+                  isOwner={isOwner}
                   username={displayUsername}
                   icon={<Clock className="w-4 h-4 text-blue-600" />}
                   colorClass="border-blue-200 bg-blue-50/50"
@@ -671,10 +668,10 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
 
               {/* Completed */}
               {completedCourses.length > 0 && (
-                <CourseGroup 
-                  title="🎓 Completed" 
-                  items={completedCourses} 
-                  isOwner={isOwner} 
+                <CourseGroup
+                  title="🎓 Completed"
+                  items={completedCourses}
+                  isOwner={isOwner}
                   username={displayUsername}
                   icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />}
                   colorClass="border-emerald-200 bg-emerald-50/50"
@@ -684,10 +681,10 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
 
               {/* To Do */}
               {todoCourses.length > 0 && (
-                <CourseGroup 
-                  title="📋 To Do List" 
-                  items={todoCourses} 
-                  isOwner={isOwner} 
+                <CourseGroup
+                  title="📋 To Do List"
+                  items={todoCourses}
+                  isOwner={isOwner}
                   username={displayUsername}
                   icon={<ListTodo className="w-4 h-4 text-gray-500" />}
                   colorClass="border-gray-200 bg-gray-50/50"
@@ -697,10 +694,10 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
 
               {/* Other Courses */}
               {otherCourses.length > 0 && (
-                <CourseGroup 
-                  title="📚 Other Courses" 
-                  items={otherCourses} 
-                  isOwner={isOwner} 
+                <CourseGroup
+                  title="📚 Other Courses"
+                  items={otherCourses}
+                  isOwner={isOwner}
                   username={displayUsername}
                   icon={<BookOpen className="w-4 h-4 text-gray-500" />}
                   colorClass="border-gray-200 bg-gray-50/50"

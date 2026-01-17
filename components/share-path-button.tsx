@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Share2, Globe, Lock, Copy, Check } from "lucide-react"
+import { Share2, Globe, Lock, Copy, Check, Twitter, Linkedin, Facebook } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -20,9 +20,11 @@ import { useRouter } from "next/navigation"
 interface SharePathButtonProps {
   pathId: string
   initialIsPublic: boolean
+  pathTitle?: string
+  userName?: string
 }
 
-export function SharePathButton({ pathId, initialIsPublic }: SharePathButtonProps) {
+export function SharePathButton({ pathId, initialIsPublic, pathTitle, userName }: SharePathButtonProps) {
   const [isPublic, setIsPublic] = useState(initialIsPublic)
   const [isUpdating, setIsUpdating] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -30,9 +32,11 @@ export function SharePathButton({ pathId, initialIsPublic }: SharePathButtonProp
   const [shareUrl, setShareUrl] = useState("")
   const [username, setUsername] = useState<string | null>(null)
   const [hasUsername, setHasUsername] = useState(false)
+  const [fetchedPathTitle, setFetchedPathTitle] = useState<string>("")
+  const [fetchedUserName, setFetchedUserName] = useState<string>("")
   const router = useRouter()
 
-  // Fetch username and slug when dialog opens
+  // Fetch username, slug, and path title when dialog opens
   useEffect(() => {
     if (dialogOpen) {
       const fetchUsernameAndSlug = async () => {
@@ -42,14 +46,14 @@ export function SharePathButton({ pathId, initialIsPublic }: SharePathButtonProp
           // Fetch profile for username
           const { data: profile } = await supabase
             .from("profiles")
-            .select("username, user_id")
+            .select("username, user_id, full_name")
             .eq("user_id", user.id)
             .maybeSingle()
           
-          // Fetch path for slug
+          // Fetch path for slug and title
           const { data: path } = await supabase
             .from("upgrade_paths")
-            .select("slug")
+            .select("slug, path_title")
             .eq("id", pathId)
             .eq("user_id", user.id)
             .maybeSingle()
@@ -63,6 +67,14 @@ export function SharePathButton({ pathId, initialIsPublic }: SharePathButtonProp
           
           setHasUsername(!!profile?.username)
           setUsername(userUsername)
+          
+          // Store fetched values for social sharing (use props if available, otherwise fetched)
+          if (path?.path_title) {
+            setFetchedPathTitle(path.path_title)
+          }
+          if (profile?.full_name) {
+            setFetchedUserName(profile.full_name)
+          }
         }
       }
       fetchUsernameAndSlug()
@@ -82,14 +94,14 @@ export function SharePathButton({ pathId, initialIsPublic }: SharePathButtonProp
           // Fetch profile for username
           const { data: profile } = await supabase
             .from("profiles")
-            .select("username, user_id")
+            .select("username, user_id, full_name")
             .eq("user_id", user.id)
             .maybeSingle()
           
-          // Fetch path for slug
+          // Fetch path for slug and title
           const { data: path } = await supabase
             .from("upgrade_paths")
-            .select("slug")
+            .select("slug, path_title")
             .eq("id", pathId)
             .eq("user_id", user.id)
             .maybeSingle()
@@ -110,6 +122,14 @@ export function SharePathButton({ pathId, initialIsPublic }: SharePathButtonProp
           
           setHasUsername(!!profile?.username)
           setUsername(userUsername)
+          
+          // Store fetched values for social sharing
+          if (path?.path_title) {
+            setFetchedPathTitle(path.path_title)
+          }
+          if (profile?.full_name) {
+            setFetchedUserName(profile.full_name)
+          }
         }
         // Keep dialog open to show the share link
         router.refresh()
@@ -173,19 +193,21 @@ export function SharePathButton({ pathId, initialIsPublic }: SharePathButtonProp
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="share-url">Shareable Link</Label>
+                <Label htmlFor="share-url" className="text-xs font-semibold text-zinc-500">
+                  PUBLIC LINK
+                </Label>
                 <div className="flex gap-2">
                   <Input
                     id="share-url"
                     value={shareUrl}
                     readOnly
-                    className="font-mono text-sm"
+                    className="font-mono text-sm bg-zinc-50 border-zinc-200 text-zinc-600"
                   />
                   <Button
                     onClick={handleCopyLink}
                     size="sm"
                     variant="outline"
-                    className="gap-2"
+                    className={copied ? "bg-green-600 hover:bg-green-700 text-white" : "bg-zinc-900 text-white"}
                   >
                     {copied ? (
                       <>
@@ -206,6 +228,53 @@ export function SharePathButton({ pathId, initialIsPublic }: SharePathButtonProp
                   </p>
                 )}
               </div>
+
+              {/* Social Media Sharing */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-zinc-500">SHARE TO SOCIAL</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(() => {
+                    // Use props if available, otherwise use fetched values
+                    const finalPathTitle = pathTitle || fetchedPathTitle
+                    const finalUserName = userName || fetchedUserName
+                    
+                    const shareText = finalPathTitle 
+                      ? `Check out "${finalPathTitle}" - ${finalUserName || "My"} AI Strategy! Generated by AI Stack Builder.`
+                      : `Check out ${finalUserName || "My"} AI Strategy! Generated by AI Stack Builder.`
+                    
+                    return [
+                      {
+                        icon: <Twitter className="w-4 h-4" />,
+                        label: "X (Twitter)",
+                        href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`
+                      },
+                      {
+                        icon: <Linkedin className="w-4 h-4" />,
+                        label: "LinkedIn",
+                        href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`
+                      },
+                      {
+                        icon: <Facebook className="w-4 h-4" />,
+                        label: "Facebook",
+                        href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`
+                      }
+                    ].map((s) => (
+                      <a 
+                        key={s.label} 
+                        href={s.href} 
+                        target="_blank" 
+                        rel="noreferrer" 
+                        className="w-full"
+                      >
+                        <Button variant="outline" className="w-full gap-2 text-xs border-zinc-200 hover:bg-zinc-50">
+                          {s.icon} {s.label}
+                        </Button>
+                      </a>
+                    ))
+                  })()}
+                </div>
+              </div>
+
               <div className="pt-4 border-t">
                 <Button
                   onClick={handleMakePrivate}
