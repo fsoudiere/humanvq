@@ -1,22 +1,71 @@
-export function calculateHVQ(stack: any[], pathItems: any[]) {
-    const BASE_HVQ = 100;
+/**
+ * Source of Truth for HVQ (Human Value Quotient) scoring calculation.
+ * 
+ * Calculates the HVQ score based on:
+ * - Base score: 100
+ * - Completed immediate steps: +15 points each
+ * - Completed delegate tasks: +10 points each
+ * - Resource leverage: Sum of (hvq_score * impact_weight) for all resources
+ * 
+ * @param data - The upgrade path data containing efficiency_audit and immediate_steps
+ * @param resources - Object containing ai_tools and human_courses arrays with resource data
+ * @param resourceWeights - Mapping of resource ID to impact_weight from path_resources table
+ * @returns The calculated HVQ score
+ */
+interface ResourceItem {
+  id?: string
+  hvq_score_machine?: number
+  hvq_score_human?: number
+}
+
+export function calculateHVQScore(
+  data: {
+    efficiency_audit?: {
+      delegate_to_machine?: Array<{ is_completed: boolean }>
+    }
+    immediate_steps?: Array<{ is_completed: boolean }>
+  },
+  resources: {
+    ai_tools: ResourceItem[]
+    human_courses: ResourceItem[]
+  },
+  resourceWeights: Record<string, number>
+): number {
+  const BASE_SCORE = 100
   
-    // 1. Stack Gains
-    const tools = stack.filter(i => i.resource.type === 'ai_tool');
-    const courses = stack.filter(i => i.resource.type === 'human_course' && i.status === 'completed');
-    
-    const toolPoints = tools.length * 5; // Infrastructure
-    const coursePoints = courses.length * 20; // Intellectual Capital
+  // Calculate points from completed immediate steps
+  const completedSteps = (data.immediate_steps || []).filter(
+    (step) => step.is_completed
+  ).length
+  const stepPoints = completedSteps * 15
   
-    // 2. Path Progress (The Core of Delegation)
-    // Assuming your path JSON contains tasks with an 'is_completed' state
-    const completedTasks = pathItems.filter(t => t.is_completed).length;
-    const pendingTasks = pathItems.filter(t => !t.is_completed).length;
+  // Calculate points from completed delegate tasks
+  const completedDelegateTasks = (data.efficiency_audit?.delegate_to_machine || []).filter(
+    (task) => task.is_completed
+  ).length
+  const delegatePoints = completedDelegateTasks * 10
   
-    const delegationBonus = completedTasks * 15;
-    const manualDebtPenalty = pendingTasks * 10;
+  // Calculate resource leverage points using relational data from path_resources
+  // Loop through resources and use impact_weight from the database
+  let resourcePoints = 0
   
-    const finalScore = BASE_HVQ + toolPoints + coursePoints + delegationBonus - manualDebtPenalty;
+  // Process AI tools
+  ;(resources.ai_tools || []).forEach((resource) => {
+    if (resource.id) {
+      const impactWeight = resourceWeights[resource.id] || 0
+      const leverage = resource.hvq_score_machine || 0
+      resourcePoints += leverage * impactWeight
+    }
+  })
   
-    return Math.max(50, finalScore); // 50 is the absolute human floor
-  }
+  // Process human courses
+  ;(resources.human_courses || []).forEach((resource) => {
+    if (resource.id) {
+      const impactWeight = resourceWeights[resource.id] || 0
+      const leverage = resource.hvq_score_human || 0
+      resourcePoints += leverage * impactWeight
+    }
+  })
+  
+  return BASE_SCORE + stepPoints + delegatePoints + Math.round(resourcePoints)
+}

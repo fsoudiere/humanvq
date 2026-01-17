@@ -16,6 +16,7 @@ import { DeletePathButton } from "@/components/delete-path-button"
 import { SharePathButton } from "@/components/share-path-button"
 import AddToolSearch from "@/components/add-tool-search"
 import Link from "next/link"
+import { calculateHVQScore } from "@/lib/hvq-logic"
 // StackManager now handles all resource management via updateResourceStatus
 
 // Define the shape of a delegate task item
@@ -140,41 +141,6 @@ export default function UnifiedPathPage() {
 
   // Edit Strategy Dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false)
-
-  // Calculate HVQ score based on current state
-  // Now includes weighted resource leverage based on status
-  const calculateHVQScore = (data: UpgradePathData): number => {
-    const BASE_SCORE = 100
-    
-    const completedSteps = (data.immediate_steps || []).filter(
-      (step) => step.is_completed
-    ).length
-    const stepPoints = completedSteps * 15
-    
-    const completedDelegateTasks = (data.efficiency_audit?.delegate_to_machine || []).filter(
-      (task) => task.is_completed
-    ).length
-    const delegatePoints = completedDelegateTasks * 10
-    
-    // Calculate resource leverage points using relational data from path_resources
-    // Loop through path_resources array and use impact_weight from the database
-    let resourcePoints = 0
-    if (pathResourcesList.ai_tools || pathResourcesList.human_courses) {
-      const allResources = [...(pathResourcesList.ai_tools || []), ...(pathResourcesList.human_courses || [])]
-      allResources.forEach((resource) => {
-        if (resource.id) {
-          // Get impact_weight from path_resources table (stored in pathResourceWeights state)
-          const impactWeight = pathResourceWeights[resource.id] || 0
-          // Use hvq_score_machine for AI tools, hvq_score_human for courses
-          const leverage = resource.hvq_score_machine || resource.hvq_score_human || 0
-          // The Math: resourcePoints += (resource.hvq_score_machine || resource.hvq_score_human || 0) * item.impact_weight
-          resourcePoints += leverage * impactWeight
-        }
-      })
-    }
-    
-    return BASE_SCORE + stepPoints + delegatePoints + Math.round(resourcePoints)
-  }
 
   useEffect(() => {
     const fetchLogos = async () => {
@@ -368,7 +334,7 @@ export default function UnifiedPathPage() {
 
           // Use current_hvq_score from database (no calculation needed - score is persisted)
           // Fallback to calculated score only if current_hvq_score is not available
-          const hvqScore = path.current_hvq_score ?? calculateHVQScore(pathData)
+          const hvqScore = path.current_hvq_score ?? calculateHVQScore(pathData, pathResourcesList, pathResourceWeights)
 
           setUpgradeData({
             ...pathData,
@@ -459,7 +425,7 @@ export default function UnifiedPathPage() {
 
           // Use current_hvq_score from database (no calculation needed - score is persisted)
           // Fallback to calculated score only if current_hvq_score is not available
-          const hvqScore = upgradePath.current_hvq_score ?? calculateHVQScore(pathData)
+          const hvqScore = upgradePath.current_hvq_score ?? calculateHVQScore(pathData, pathResourcesList, pathResourceWeights)
 
           setUpgradeData({
             ...pathData,
@@ -573,7 +539,7 @@ export default function UnifiedPathPage() {
       const payload = {
         immediate_steps: updatedData.immediate_steps ?? [],
         efficiency_audit: updatedEfficiencyAudit,
-        current_hvq_score: updatedData.current_hvq_score ?? calculateHVQScore(updatedData),
+        current_hvq_score: updatedData.current_hvq_score ?? calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights),
         updated_at: new Date().toISOString()
       }
 
@@ -612,7 +578,7 @@ export default function UnifiedPathPage() {
       efficiency_audit: updatedEfficiencyAudit
     }
 
-    const newScore = calculateHVQScore(updatedData)
+    const newScore = calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights)
     setUpgradeData({ ...updatedData, current_hvq_score: newScore })
     setCurrentHvqScore(newScore)
 
@@ -637,7 +603,7 @@ export default function UnifiedPathPage() {
       immediate_steps: updatedSteps
     }
 
-    const newScore = calculateHVQScore(updatedData)
+    const newScore = calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights)
     setUpgradeData({ ...updatedData, current_hvq_score: newScore })
     setCurrentHvqScore(newScore)
 
@@ -1033,10 +999,12 @@ export default function UnifiedPathPage() {
                     }
                     
                     // Recalculate HVQ score with updated weights
-                    const newScore = calculateHVQScore({
-                      ...upgradeData!,
-                      current_hvq_score: undefined
-                    })
+                    const { current_hvq_score: _, ...dataForCalculation } = upgradeData!
+                    const newScore = calculateHVQScore(
+                      dataForCalculation,
+                      pathResourcesList,
+                      pathResourceWeights
+                    )
                     setUpgradeData(prev => prev ? { ...prev, current_hvq_score: newScore } : null)
                     setCurrentHvqScore(newScore)
                     router.refresh()
@@ -1168,10 +1136,12 @@ export default function UnifiedPathPage() {
                   }
                   
                   // Recalculate HVQ score with updated weights
-                  const newScore = calculateHVQScore({
-                    ...upgradeData!,
-                    current_hvq_score: undefined
-                  })
+                  const { current_hvq_score: _, ...dataForCalculation } = upgradeData!
+                  const newScore = calculateHVQScore(
+                    dataForCalculation,
+                    pathResourcesList,
+                    pathResourceWeights
+                  )
                   setUpgradeData(prev => prev ? { ...prev, current_hvq_score: newScore } : null)
                   setCurrentHvqScore(newScore)
                   router.refresh()
