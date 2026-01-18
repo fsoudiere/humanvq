@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Share2, Globe, Lock, Copy, Check, Twitter, Linkedin, Facebook, Download, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import {
   Dialog,
   DialogContent,
@@ -31,6 +32,8 @@ interface ShareButtonProps {
   size?: "default" | "sm" | "lg" | "icon"
   // Optional: show toggle as separate button (for inline use)
   showToggleOnly?: boolean
+  // Optional: custom className for styling
+  className?: string
 }
 
 export function ShareButton({
@@ -43,6 +46,7 @@ export function ShareButton({
   variant = "outline",
   size = "sm",
   showToggleOnly = false,
+  className,
 }: ShareButtonProps) {
   const [isPublic, setIsPublic] = useState(initialVisibility)
   const [isUpdating, setIsUpdating] = useState(false)
@@ -306,11 +310,13 @@ export function ShareButton({
         size={size}
         onClick={handleToggleVisibility}
         disabled={isUpdating}
-        className={`gap-2 ${
+        className={cn(
+          "gap-2",
           isPublic
             ? "text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-950/20 border-blue-200 dark:border-blue-800"
-            : "text-zinc-600 hover:text-zinc-700 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:text-zinc-300 dark:hover:bg-zinc-950/20"
-        }`}
+            : "text-zinc-600 hover:text-zinc-700 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:text-zinc-300 dark:hover:bg-zinc-950/20",
+          className
+        )}
         title={isPublic ? "Make private" : "Make public"}
       >
         {isPublic ? (
@@ -333,12 +339,20 @@ export function ShareButton({
     return null // Don't show share button if not owner and path is private
   }
 
+  const isIconOnly = size === "icon"
+  
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <DialogTrigger asChild>
-        <Button variant={variant} size={size} className="gap-2">
-          <Share2 className="h-4 w-4" />
-          Share
+        <Button variant={variant} size={size} className={cn(isIconOnly ? "" : "gap-2", className)}>
+          {targetType === 'path' && isPublic ? (
+            <Globe className="h-4 w-4" />
+          ) : targetType === 'path' && !isPublic ? (
+            <Lock className="h-4 w-4" />
+          ) : (
+            <Share2 className="h-4 w-4" />
+          )}
+          {!isIconOnly && "Share"}
         </Button>
       </DialogTrigger>
       <DialogContent>

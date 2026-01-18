@@ -20,10 +20,9 @@ export default function LogoutButton() {
       variant="ghost"
       size="sm"
       onClick={handleLogout}
-      className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+      className="h-9 w-9 p-0 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
     >
       <LogOut className="h-4 w-4" />
-      Logout
     </Button>
   )
 }

@@ -2,13 +2,13 @@ import { createClient } from "@/utils/supabase/server"
 import { ShareButton } from "@/components/share-button"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { BookOpen, Wrench, GraduationCap, CheckCircle2, Clock, ListTodo, Target, ArrowUp, ArrowDown, Settings } from "lucide-react"
+import { BookOpen, Wrench, GraduationCap, CheckCircle2, Clock, ListTodo, Target, Settings, LayoutDashboard, Activity, Plus } from "lucide-react"
 import { Metadata } from "next"
 import ResourceIcon from "@/components/resource-icon"
 import { Card, CardContent } from "@/components/ui/card"
-import { DeletePathButton } from "@/components/delete-path-button"
 import TierSection from "@/components/tier-section"
 import CourseGroup from "@/components/course-group"
+import { PathCard } from "@/components/path-card"
 
 interface PageProps {
   params: Promise<{ username: string }>
@@ -116,7 +116,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   // STEP 3: Ownership Check
   const isOwner = currentUser?.id === profile.user_id
 
-  // STEP 4: Fetch upgrade_paths for Global Human Moat Score and Path cards
+  // STEP 4: Fetch upgrade_paths for Global Human Moat Score and Path cards (including efficiency_audit for metrics)
   const { data: pathsData, error: pathsError } = await supabase
     .from("upgrade_paths")
     .select("*")
@@ -309,6 +309,30 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   // Filter paths based on ownership
   const displayPaths = isOwner ? paths : paths.filter((p: any) => p.is_public === true)
 
+  // Calculate metrics for dashboard
+  // 1. Count completed automated tasks across all paths (Time Saved calculation)
+  // Each completed task in delegate_to_machine represents automated work (estimate 10 hours per task)
+  let totalCompletedTasks = 0
+  paths.forEach((path: any) => {
+    if (path.efficiency_audit) {
+      try {
+        const audit = typeof path.efficiency_audit === 'string' 
+          ? JSON.parse(path.efficiency_audit) 
+          : path.efficiency_audit
+        if (audit?.delegate_to_machine && Array.isArray(audit.delegate_to_machine)) {
+          const completed = audit.delegate_to_machine.filter((task: any) => task.is_completed === true)
+          totalCompletedTasks += completed.length
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+  })
+  const timeSavedHours = totalCompletedTasks * 10 // 10 hours per automated task
+
+  // 2. Skills Gained = completed courses
+  const skillsGained = completedCourses.length
+
   // One Source of Truth: Read current_hvq_score directly from upgrade_paths table
   // Average Calculation: This global score is the average of all current_hvq_score values from paths
   // Do NOT calculate scores in frontend - read saved values from database
@@ -340,39 +364,16 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
     ? displayProfile.organization_name
     : displayProfile?.full_name || username
 
-  const stackType = displayProfile?.is_organization ? "Company Stack" : "Stack"
-
   return (
-    <div id="stack-capture" className="max-w-4xl mx-auto py-12 px-4">
-
-      {/* HEADER */}
-      <div className="text-center mb-12">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex-1"></div>
-          <h1 className="text-4xl font-extrabold mb-2 flex-1">
-            {displayName}'s {stackType}
-          </h1>
-          <div className="flex-1 flex justify-end">
+    <div className="min-h-screen">
+      <main id="stack-capture" className="mx-auto max-w-6xl px-6 py-16">
+        {/* HEADER */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
+              {displayName}'s Dashboard
+            </h1>
             {isOwner && (
-              <Link href="/settings">
-                <Button variant="ghost" size="sm" className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-                  <Settings className="h-4 w-4" />
-                  Settings
-                </Button>
-              </Link>
-            )}
-          </div>
-        </div>
-
-        {isOwner ? (
-          <>
-            <div className="hide-on-export mt-4 flex flex-col items-center gap-2">
-              <span className="text-green-600 text-xs font-medium bg-green-50 px-3 py-1 rounded-full border border-green-100">
-                ✅ You are viewing your {displayProfile?.is_organization ? "company's" : ""} public page
-              </span>
-            </div>
-
-            <div className="flex justify-center gap-3 mt-6 mb-10">
               <ShareButton
                 targetType="stack"
                 targetId={targetUserId}
@@ -382,59 +383,143 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                     ? displayProfile.organization_name
                     : displayProfile?.full_name || "User"
                 }
-                variant="default"
-                size="default"
+                variant="ghost"
+                size="sm"
+                className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
               />
-              <Link href={`/u/${displayUsername}/create`}>
-                <Button variant="outline" className="rounded-full">+ New Path</Button>
-              </Link>
-            </div>
-          </>
-        ) : (
-          <p className="text-zinc-500 mt-2">
-            {profile.is_organization ? "Public organization portfolio" : "Public portfolio"}
-          </p>
-        )}
-      </div>
-
-      {/* Global HVQ Score Hero Badge - Primary score display for all users */}
-      {/* One Source of Truth: Read directly from upgrade_paths.current_hvq_score, averaged */}
-      <div className="mb-12 flex justify-center">
-        <div className="relative bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-2 border-blue-200 dark:border-blue-800 rounded-2xl p-8 shadow-xl">
-          <div className="text-center">
-            <div className="text-sm font-medium text-blue-600 dark:text-blue-400 mb-2 uppercase tracking-wider">
-              Global Human Moat Score
-            </div>
-            <div className="flex items-baseline justify-center gap-4 mb-3">
-              <div className="text-7xl font-extrabold text-blue-900 dark:text-blue-100">
-                {globalAverage}
-              </div>
-              {globalDeltaPercent !== null && globalDeltaPercent !== 0 && (
-                <div className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-semibold ${globalDeltaPercent > 0
-                  ? 'bg-emerald-500 text-white dark:bg-emerald-600 shadow-lg shadow-emerald-500/50'
-                  : 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400'
-                  }`}>
-                  {globalDeltaPercent > 0 ? (
-                    <ArrowUp className="w-4 h-4" />
-                  ) : (
-                    <ArrowDown className="w-4 h-4" />
-                  )}
-                  <span>
-                    {globalDeltaPercent > 0 ? '+' : ''}{globalDeltaPercent}%
-                  </span>
-                </div>
-              )}
-            </div>
-            <div className="text-xs text-blue-600 dark:text-blue-400">
-              {currentPathScores.length > 0
-                ? `Average of ${currentPathScores.length} ${currentPathScores.length === 1 ? 'path' : 'paths'} (from database)`
-                : globalAverage === 100
-                  ? 'Base score (100) - indicates no paths saved scores yet'
-                  : 'Base human score (no paths yet)'
-              }
-            </div>
+            )}
           </div>
         </div>
+
+      {/* Metrics Row - 4 columns with sparklines */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        {/* HVQ Overall Score */}
+        <Card className="p-3 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-blue-600 dark:text-blue-400">HVQ Overall Score</div>
+            <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+              <LayoutDashboard className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">{globalAverage}</div>
+            <div className="w-20 h-8">
+              <svg width="100%" height="32" className="text-blue-600 dark:text-blue-400">
+                {Array.from({ length: 7 }).map((_, i) => {
+                  const barHeight = Math.random() * 18 + 6 + ((globalAverage - 100) / 15)
+                  const x = (i * 11) + 2
+                  return (
+                    <rect
+                      key={i}
+                      x={x}
+                      y={32 - Math.min(barHeight, 26)}
+                      width="4"
+                      height={Math.min(barHeight, 26)}
+                      fill="currentColor"
+                      opacity={0.6 + (i / 7) * 0.4}
+                    />
+                  )
+                })}
+              </svg>
+            </div>
+          </div>
+        </Card>
+
+        {/* Active Paths */}
+        <Card className="p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">Active Paths</div>
+            <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+              <Target className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{displayPaths.length}</div>
+            <div className="w-20 h-8">
+              <svg width="100%" height="32" className="text-purple-500">
+                {Array.from({ length: 7 }).map((_, i) => {
+                  const barHeight = Math.random() * 15 + 6 + (displayPaths.length * 1.5)
+                  const x = (i * 11) + 2
+                  return (
+                    <rect
+                      key={i}
+                      x={x}
+                      y={32 - Math.min(barHeight, 26)}
+                      width="4"
+                      height={Math.min(barHeight, 26)}
+                      fill="currentColor"
+                      opacity={0.6 + (i / 7) * 0.4}
+                    />
+                  )
+                })}
+              </svg>
+            </div>
+          </div>
+        </Card>
+
+        {/* Time Saved */}
+        <Card className="p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">Time Saved</div>
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+              <Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{timeSavedHours}h</div>
+            <div className="w-20 h-8">
+              <svg width="100%" height="32" className="text-emerald-500">
+                {Array.from({ length: 7 }).map((_, i) => {
+                  const barHeight = Math.random() * 16 + 6 + Math.min(timeSavedHours / 8, 8)
+                  const x = (i * 11) + 2
+                  return (
+                    <rect
+                      key={i}
+                      x={x}
+                      y={32 - Math.min(barHeight, 26)}
+                      width="4"
+                      height={Math.min(barHeight, 26)}
+                      fill="currentColor"
+                      opacity={0.6 + (i / 7) * 0.4}
+                    />
+                  )
+                })}
+              </svg>
+            </div>
+          </div>
+        </Card>
+
+        {/* Skills Gained */}
+        <Card className="p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">Skills Gained</div>
+            <div className="w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+              <GraduationCap className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{skillsGained}</div>
+            <div className="w-20 h-8">
+              <svg width="100%" height="32" className="text-orange-500">
+                {Array.from({ length: 7 }).map((_, i) => {
+                  const barHeight = Math.random() * 14 + 6 + (skillsGained * 2)
+                  const x = (i * 11) + 2
+                  return (
+                    <rect
+                      key={i}
+                      x={x}
+                      y={32 - Math.min(barHeight, 26)}
+                      width="4"
+                      height={Math.min(barHeight, 26)}
+                      fill="currentColor"
+                      opacity={0.6 + (i / 7) * 0.4}
+                    />
+                  )
+                })}
+              </svg>
+            </div>
+          </div>
+        </Card>
       </div>
 
       <div className="space-y-20">
@@ -442,13 +527,12 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
         {/* --- SECTION 0: UPGRADE PATHS --- */}
         {displayPaths.length > 0 && (
           <section>
-            <div className="flex items-center gap-2 mb-8 border-b pb-4">
-              <Target className="w-6 h-6 text-zinc-400" />
-              <h2 className="text-2xl font-bold text-zinc-900">
-                {isOwner
-                  ? (displayProfile?.is_organization ? "Company Upgrade Paths" : "Your Upgrade Paths")
-                  : (profile.is_organization ? "Company Upgrade Paths" : "Upgrade Paths")
-                }
+            <div className="flex items-center gap-3 mb-8">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/30">
+                <Target className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              <h2 className="text-2xl font-normal text-zinc-900">
+                All Paths
               </h2>
             </div>
 
@@ -517,131 +601,56 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                 const pathSlug = path.slug || path.id // Fallback to id if slug is missing
                 const pathUrl = `/u/${displayUsername}/${pathSlug}`
 
+                // Format last updated time
+                const updatedDate = path.updated_at ? new Date(path.updated_at) : null
+                const formattedUpdated = updatedDate ? updatedDate.toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric'
+                }) : null
+
                 return (
-                  <Link key={path.id} href={pathUrl}>
-                    <Card className={`h-full hover:shadow-lg transition-shadow cursor-pointer relative ${isLowLeverage
-                      ? 'border-2 border-red-300 hover:border-red-400 dark:border-red-700 dark:hover:border-red-600'
-                      : 'border-zinc-200 hover:border-zinc-300'
-                      }`}>
-                      <CardContent className="p-6">
-                        <div className="flex flex-col h-full">
-                          {/* Action Buttons - Only show for owner */}
-                          {isOwner && (
-                            <div className="flex gap-2 mb-3">
-                              <ShareButton
-                                targetType="path"
-                                targetId={path.id}
-                                isOwner={isOwner}
-                                initialVisibility={path.is_public || false}
-                                showToggleOnly={true}
-                              />
-                              <DeletePathButton pathId={path.id} />
-                            </div>
-                          )}
-
-                          {/* Header with Score Badge */}
-                          <div className="mb-3 relative">
-                            {/* Score Badge - Top Right */}
-                            {score !== null && (
-                              <div className={`absolute top-0 right-0 px-2 py-1 rounded-full text-xs font-semibold border ${scoreBadgeClass}`}>
-                                {score}
-                              </div>
-                            )}
-
-                            {/* High Priority Tag */}
-                            {isHighPriority && (
-                              <div className="absolute top-0 left-0 px-2 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-800">
-                                High Priority
-                              </div>
-                            )}
-
-                            <div className={`text-xs text-zinc-500 dark:text-zinc-400 mb-2 ${isHighPriority ? 'mt-8' : ''}`}>
-                              {formattedDate}
-                            </div>
-                            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 line-clamp-2 pr-16">
-                              {displayTitle}
-                            </h3>
-                            {/* Score Label */}
-                            {hasScore && (
-                              <div className={`text-[10px] mt-1 ${scoreLabelClass}`}>
-                                {scoreLabel}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Path Details */}
-                          <div className="flex-1 space-y-2 mb-4">
-                            {path.main_goal && (
-                              <p className="text-sm text-zinc-600 dark:text-zinc-400 line-clamp-2">
-                                {path.main_goal}
-                              </p>
-                            )}
-
-                            {path.role && (
-                              <div className="flex items-center gap-1">
-                                <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                                  Role: {path.role}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Footer */}
-                          <div className="mt-auto pt-4 border-t border-zinc-100 dark:border-zinc-800">
-                            <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
-                              View Path
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                              </svg>
-                            </div>
-                            {path.efficiency_audit ? (
-                              <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-2">
-                                ✓ Ready
-                              </div>
-                            ) : (
-                              <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
-                                ⏳ Generating...
-                              </div>
-                            )}
-
-                            {/* Daily Trend Change Indicator */}
-                            {hasScore && dailyChangePercent !== null && (
-                              <div className="mt-3 flex items-center gap-2">
-                                <div className={`flex items-center gap-1 text-xs font-semibold ${dailyChangePercent > 0
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : dailyChangePercent < 0
-                                    ? 'text-red-600 dark:text-red-400'
-                                    : 'text-zinc-500 dark:text-zinc-400'
-                                  }`}>
-                                  {dailyChangePercent > 0 ? (
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                    </svg>
-                                  ) : dailyChangePercent < 0 ? (
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6 6" />
-                                    </svg>
-                                  ) : (
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14" />
-                                    </svg>
-                                  )}
-                                  <span>
-                                    {dailyChangePercent > 0 ? '+' : ''}{dailyChangePercent}%
-                                  </span>
-                                </div>
-                                <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                                  daily
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
+                  <PathCard
+                    key={path.id}
+                    path={path}
+                    pathUrl={pathUrl}
+                    displayTitle={displayTitle}
+                    displayScore={displayScore}
+                    score={score}
+                    hasScore={hasScore}
+                    dailyChangePercent={dailyChangePercent}
+                    isOwner={isOwner}
+                    isPublic={path.is_public || false}
+                    displayProfile={displayProfile}
+                    formattedUpdated={formattedUpdated}
+                    mainGoal={path.main_goal}
+                    role={path.role}
+                  />
                 )
               })}
+              
+              {/* Add New Path Card */}
+              {isOwner && (
+                <Link href={`/u/${displayUsername}/create`}>
+                  <Card className="h-full transition-shadow cursor-pointer border-2 border-dashed border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-600 flex items-center justify-center min-h-[200px]">
+                    <CardContent className="p-6 text-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                          <Plus className="h-6 w-6 text-zinc-600 dark:text-zinc-400" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-1">
+                            Add New Path
+                          </h3>
+                          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                            Create a new upgrade path
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              )}
             </div>
           </section>
         )}
@@ -649,84 +658,92 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
         {/* --- SECTION 1: AI TOOLS --- */}
         {tools.length > 0 && (
           <section>
-            <div className="flex items-center gap-2 mb-8 border-b pb-4">
-              <Wrench className="w-6 h-6 text-zinc-400" />
-              <h2 className="text-2xl font-bold text-zinc-900">AI Tool Arsenal</h2>
-            </div>
+            {(() => {
+              const allTools = [...payingTools, ...freeTools, ...wishlistTools, ...otherTools]
+              const totalCount = allTools.length
+              
+              return (
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                      <Activity className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <h2 className="text-2xl font-normal text-zinc-900">AI Toolstack</h2>
+                    <span className="text-xs bg-zinc-100 text-zinc-500 px-2 py-1 rounded-full font-normal">
+                      {totalCount}
+                    </span>
+                  </div>
+                  <Link 
+                    href={`/u/${displayUsername}/tools`}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
+                  >
+                    View All
+                  </Link>
+                </div>
+              )
+            })()}
 
-            <div className="space-y-8">
-              <TierSection title="💸 Essential (Paying)" items={payingTools} isOwner={isOwner} username={displayUsername} paths={paths} />
-              <TierSection title="⚡ Daily Drivers (Free)" items={freeTools} isOwner={isOwner} username={displayUsername} paths={paths} />
-              <TierSection title="🔖 Wishlist" items={wishlistTools} isOwner={isOwner} username={displayUsername} paths={paths} />
-            </div>
+            {(() => {
+              const allTools = [...payingTools, ...freeTools, ...wishlistTools, ...otherTools]
+              const displayedTools = allTools.slice(0, 6)
+              
+              return (
+                <TierSection title="" items={displayedTools} isOwner={isOwner} username={displayUsername} paths={paths} />
+              )
+            })()}
           </section>
         )}
 
         {/* --- SECTION 2: KNOWLEDGE BASE --- */}
         {courses.length > 0 && (
           <section>
-            <div className="flex items-center gap-2 mb-8 border-b pb-4">
-              <GraduationCap className="w-6 h-6 text-blue-600" />
-              <h2 className="text-2xl font-bold text-zinc-900">Knowledge Base</h2>
-            </div>
+            {(() => {
+              const allCourses = [...enrolledCourses, ...completedCourses, ...wishlistCourses, ...otherCourses]
+              const totalCount = allCourses.length
+              
+              return (
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
+                      <GraduationCap className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                    </div>
+                    <h2 className="text-2xl font-normal text-zinc-900">Human Skills</h2>
+                    <span className="text-xs bg-zinc-100 text-zinc-500 px-2 py-1 rounded-full font-normal">
+                      {totalCount}
+                    </span>
+                  </div>
+                  <Link 
+                    href={`/u/${displayUsername}/skills`}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
+                  >
+                    View All
+                  </Link>
+                </div>
+              )
+            })()}
 
-            <div className="grid grid-cols-1 gap-6">
-              {/* In Progress */}
-              {enrolledCourses.length > 0 && (
+            {(() => {
+              const allCourses = [...enrolledCourses, ...completedCourses, ...wishlistCourses, ...otherCourses]
+              const displayedCourses = allCourses.slice(0, 6)
+              
+              return (
                 <CourseGroup
-                  title="📖 In Progress"
-                  items={enrolledCourses}
+                  title=""
+                  items={displayedCourses}
                   isOwner={isOwner}
                   username={displayUsername}
-                  icon={<Clock className="w-4 h-4 text-blue-600" />}
-                  colorClass="border-blue-200 bg-blue-50/50"
+                  icon={null}
+                  colorClass=""
                   paths={paths}
                 />
-              )}
-
-              {/* Completed */}
-              {completedCourses.length > 0 && (
-                <CourseGroup
-                  title="🎓 Completed"
-                  items={completedCourses}
-                  isOwner={isOwner}
-                  username={displayUsername}
-                  icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                  colorClass="border-emerald-200 bg-emerald-50/50"
-                  paths={paths}
-                />
-              )}
-
-              {/* Wishlisted / To Do */}
-              {wishlistCourses.length > 0 && (
-                <CourseGroup
-                  title="📋 To Do List"
-                  items={wishlistCourses}
-                  isOwner={isOwner}
-                  username={displayUsername}
-                  icon={<ListTodo className="w-4 h-4 text-gray-500" />}
-                  colorClass="border-gray-200 bg-gray-50/50"
-                  paths={paths}
-                />
-              )}
-
-              {/* Other Courses */}
-              {otherCourses.length > 0 && (
-                <CourseGroup
-                  title="📚 Other Courses"
-                  items={otherCourses}
-                  isOwner={isOwner}
-                  username={displayUsername}
-                  icon={<BookOpen className="w-4 h-4 text-gray-500" />}
-                  colorClass="border-gray-200 bg-gray-50/50"
-                  paths={paths}
-                />
-              )}
-            </div>
+              )
+            })()}
           </section>
         )}
 
       </div>
+
+      </main>
     </div>
   )
 }

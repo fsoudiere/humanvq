@@ -2,18 +2,20 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Bot, GraduationCap, Footprints, Calendar, Settings, Target } from "lucide-react"
+import { Bot, GraduationCap, Footprints, Calendar, Settings, Target, LayoutDashboard, Activity, Wrench, Trash2 } from "lucide-react"
 import ResourceIcon from "@/components/resource-icon"
 import { createClient } from "@/utils/supabase/client"
 import StackManager from "@/components/stack-manager"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { IntakeForm } from "@/components/IntakeForm"
 import { EditablePathTitle } from "@/components/editable-path-title"
 import { DeletePathButton } from "@/components/delete-path-button"
 import { ShareButton } from "@/components/share-button"
+import { RemoveFromPathButton } from "@/components/remove-from-path-button"
 import AddToolSearch from "@/components/add-tool-search"
 import Link from "next/link"
 import { calculateHVQScore } from "@/lib/hvq-logic"
@@ -141,6 +143,9 @@ export default function UnifiedPathPage() {
 
   // Edit Strategy Dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+  
+  // New step input state
+  const [newStepText, setNewStepText] = useState("")
 
   useEffect(() => {
     const fetchLogos = async () => {
@@ -615,6 +620,39 @@ export default function UnifiedPathPage() {
     }
   }
 
+  const handleAddStep = async () => {
+    if (!newStepText.trim() || !upgradeData?.immediate_steps || !isOwner) return
+
+    const previousData = upgradeData
+    const newStep: ImmediateStepItem = {
+      text: newStepText.trim(),
+      is_completed: false
+    }
+
+    const updatedSteps = [...upgradeData.immediate_steps, newStep]
+    const updatedData = {
+      ...upgradeData,
+      immediate_steps: updatedSteps
+    }
+
+    const newScore = calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights)
+    setUpgradeData({ ...updatedData, current_hvq_score: newScore })
+    setCurrentHvqScore(newScore)
+    setNewStepText("")
+
+    try {
+      await updatePathInSupabase({ ...updatedData, current_hvq_score: newScore })
+    } catch (error) {
+      console.error("Failed to add immediate step, reverting:", error)
+      setUpgradeData(previousData)
+    }
+  }
+
+  const handleRemoveStep = async (index: number) => {
+    // TODO: Implement backend and database update
+    console.log("Remove step at index:", index)
+  }
+
   // Loading State
   if (state === "loading") {
     return (
@@ -679,26 +717,18 @@ export default function UnifiedPathPage() {
     ? profileData.organization_name
     : profileData?.full_name || username
 
-  // Calculate score badge styling
-  const scoreBadgeClass = currentHvqScore !== null && currentHvqScore < 120
-    ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800"
-    : currentHvqScore !== null && currentHvqScore >= 120 && currentHvqScore <= 150
-    ? "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/30 dark:text-yellow-400 dark:border-yellow-800"
-    : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800"
-  
-  const scoreLabel = currentHvqScore !== null && currentHvqScore < 120
-    ? "Manual/Low Leverage"
-    : currentHvqScore !== null && currentHvqScore >= 120 && currentHvqScore <= 150
-    ? "Optimizing"
-    : "High Leverage"
+  // Calculate path-specific metrics
+  const automatedTasksCompleted = delegateToMachine.filter((task: DelegateTaskItem) => task.is_completed === true).length
+  const stepsCompleted = immediateSteps.filter((step: ImmediateStepItem) => step.is_completed === true).length
+  const toolsAdded = pathResourcesList.ai_tools?.length || 0
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-black">
+    <div className="min-h-screen">
       <main className="mx-auto max-w-6xl px-6 py-16">
         
         {/* Header Section */}
-        <div className="mb-12 pb-8 border-b border-zinc-200 dark:border-zinc-800">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-6">
             <div className="flex-1">
               {isOwner ? (
                 <EditablePathTitle 
@@ -707,14 +737,14 @@ export default function UnifiedPathPage() {
                   onUpdate={(newTitle) => setPathTitle(newTitle)}
                 />
               ) : (
-                <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 mb-4">
+                <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
                   {pathTitle}
                 </h1>
               )}
               
               {/* Author Info (for non-owners) */}
               {!isOwner && (
-                <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400 mb-4">
+                <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400 mt-2">
                   <span>by</span>
                   <Link 
                     href={`/u/${username}`}
@@ -722,19 +752,6 @@ export default function UnifiedPathPage() {
                   >
                     {displayName}
                   </Link>
-                </div>
-              )}
-              
-              {/* HVQ Score Badge */}
-              {currentHvqScore !== null && (
-                <div className="mt-4 flex items-center gap-3">
-                  <div className={`inline-flex items-center justify-center px-4 py-2 rounded-xl font-bold text-2xl shadow-sm border-2 ${scoreBadgeClass}`}>
-                    <span className="text-sm mr-1">HVQ</span>
-                    <span>{currentHvqScore}</span>
-                  </div>
-                  <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                    {scoreLabel}
-                  </span>
                 </div>
               )}
             </div>
@@ -749,18 +766,21 @@ export default function UnifiedPathPage() {
                   initialVisibility={isPublic}
                   pathTitle={pathTitle}
                   userName={profileData?.full_name || undefined}
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                 />
                 
                 <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-2">
+                    <Button variant="ghost" size="sm" className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
                       <Settings className="h-4 w-4" />
-                      Edit Strategy
+                      Edit Path
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                      <DialogTitle>Edit Strategy</DialogTitle>
+                      <DialogTitle>Edit Path</DialogTitle>
                       <DialogDescription>
                         Update your role, goal, and context for this path.
                       </DialogDescription>
@@ -784,53 +804,149 @@ export default function UnifiedPathPage() {
               </div>
             )}
           </div>
+
+          {/* Metrics Row - 4 columns with sparklines */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            {/* HVQ Score */}
+            <Card className="p-3 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-blue-600 dark:text-blue-400">HVQ Score</div>
+                <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                  <LayoutDashboard className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">{currentHvqScore ?? 100}</div>
+                <div className="w-20 h-8">
+                  <svg width="100%" height="32" className="text-blue-600 dark:text-blue-400">
+                    {Array.from({ length: 7 }).map((_, i) => {
+                      const barHeight = Math.random() * 18 + 6 + ((currentHvqScore ?? 100 - 100) / 15)
+                      const x = (i * 11) + 2
+                      return (
+                        <rect
+                          key={i}
+                          x={x}
+                          y={32 - Math.min(barHeight, 26)}
+                          width="4"
+                          height={Math.min(barHeight, 26)}
+                          fill="currentColor"
+                          opacity={0.6 + (i / 7) * 0.4}
+                        />
+                      )
+                    })}
+                  </svg>
+                </div>
+              </div>
+            </Card>
+
+            {/* Automated Tasks */}
+            <Card className="p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">Automated Tasks</div>
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                  <Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{automatedTasksCompleted}</div>
+                <div className="w-20 h-8">
+                  <svg width="100%" height="32" className="text-emerald-500">
+                    {Array.from({ length: 7 }).map((_, i) => {
+                      const barHeight = Math.random() * 16 + 6 + Math.min(automatedTasksCompleted * 2, 8)
+                      const x = (i * 11) + 2
+                      return (
+                        <rect
+                          key={i}
+                          x={x}
+                          y={32 - Math.min(barHeight, 26)}
+                          width="4"
+                          height={Math.min(barHeight, 26)}
+                          fill="currentColor"
+                          opacity={0.6 + (i / 7) * 0.4}
+                        />
+                      )
+                    })}
+                  </svg>
+                </div>
+              </div>
+            </Card>
+
+            {/* Steps Completed */}
+            <Card className="p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">Steps Completed</div>
+                <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                  <Footprints className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{stepsCompleted}</div>
+                <div className="w-20 h-8">
+                  <svg width="100%" height="32" className="text-purple-500">
+                    {Array.from({ length: 7 }).map((_, i) => {
+                      const barHeight = Math.random() * 15 + 6 + (stepsCompleted * 1.5)
+                      const x = (i * 11) + 2
+                      return (
+                        <rect
+                          key={i}
+                          x={x}
+                          y={32 - Math.min(barHeight, 26)}
+                          width="4"
+                          height={Math.min(barHeight, 26)}
+                          fill="currentColor"
+                          opacity={0.6 + (i / 7) * 0.4}
+                        />
+                      )
+                    })}
+                  </svg>
+                </div>
+              </div>
+            </Card>
+
+            {/* Tools Added */}
+            <Card className="p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">Tools Added</div>
+                <div className="w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                  <Wrench className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{toolsAdded}</div>
+                <div className="w-20 h-8">
+                  <svg width="100%" height="32" className="text-orange-500">
+                    {Array.from({ length: 7 }).map((_, i) => {
+                      const barHeight = Math.random() * 14 + 6 + (toolsAdded * 2)
+                      const x = (i * 11) + 2
+                      return (
+                        <rect
+                          key={i}
+                          x={x}
+                          y={32 - Math.min(barHeight, 26)}
+                          width="4"
+                          height={Math.min(barHeight, 26)}
+                          fill="currentColor"
+                          opacity={0.6 + (i / 7) * 0.4}
+                        />
+                      )
+                    })}
+                  </svg>
+                </div>
+              </div>
+            </Card>
+          </div>
         </div>
 
-
-        {/* Strategy Info */}
-        {(strategyData.role || strategyData.main_goal || strategyData.context) && (
-          <section className="mb-12">
-            <Card className="border-zinc-200 dark:border-zinc-800">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Target className="h-5 w-5" />
-                  Strategy Overview
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {strategyData.role && (
-                  <div>
-                    <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Role</p>
-                    <p className="text-zinc-900 dark:text-zinc-50">{strategyData.role}</p>
-                  </div>
-                )}
-                {strategyData.main_goal && (
-                  <div>
-                    <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Main Goal</p>
-                    <p className="text-zinc-900 dark:text-zinc-50">{strategyData.main_goal}</p>
-                  </div>
-                )}
-                {strategyData.context && (
-                  <div>
-                    <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-1">Context</p>
-                    <p className="text-zinc-900 dark:text-zinc-50 whitespace-pre-wrap">{strategyData.context}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </section>
-        )}
-
-        {/* The Efficiency Audit */}
+        {/* Efficiency Audit */}
         <section className="mb-20">
-          <h2 className="mb-8 text-3xl font-light tracking-tight text-black dark:text-zinc-50">
-            The Efficiency Audit
+          <h2 className="mb-8 text-2xl font-normal text-black dark:text-zinc-50">
+            Efficiency Audit
           </h2>
           <div className="grid gap-6 md:grid-cols-2">
             {/* Left: Delegate to Machine */}
-            <Card className="border-red-200 bg-red-50/50 dark:border-red-900/30 dark:bg-red-950/20">
+            <Card className="border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/30 dark:bg-emerald-950/20">
               <CardHeader>
-                <CardTitle className="text-xl font-semibold text-red-900 dark:text-red-400">
+                <CardTitle className="text-xl font-semibold text-emerald-900 dark:text-emerald-400">
                   Delegate to Machine
                 </CardTitle>
               </CardHeader>
@@ -878,9 +994,9 @@ export default function UnifiedPathPage() {
             </Card>
 
             {/* Right: Keep for Human */}
-            <Card className="border-green-200 bg-green-50/50 dark:border-green-900/30 dark:bg-green-950/20">
+            <Card className="border-orange-200 bg-orange-50/50 dark:border-orange-900/30 dark:bg-orange-950/20">
               <CardHeader>
-                <CardTitle className="text-xl font-bold text-green-900 dark:text-green-400">
+                <CardTitle className="text-xl font-normal text-orange-900 dark:text-orange-400">
                   Keep for Human
                 </CardTitle>
               </CardHeader>
@@ -889,7 +1005,7 @@ export default function UnifiedPathPage() {
                   {keepForHuman.length > 0 ? (
                     keepForHuman.map((item, index) => (
                       <li key={index} className="flex items-center gap-2">
-                        <span className="text-green-600 dark:text-green-400">•</span>
+                        <span className="text-orange-600 dark:text-orange-400">•</span>
                         {item}
                       </li>
                     ))
@@ -913,11 +1029,11 @@ export default function UnifiedPathPage() {
             <section className="mb-16">
               <div className="mb-8 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                    <Bot className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                    <Bot className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                   </div>
-                  <h2 className="text-3xl font-light tracking-tight text-black dark:text-zinc-50">
-                    Top 3 AI Tools
+                  <h2 className="text-2xl font-normal text-black dark:text-zinc-50">
+                    AI Toolstack
                   </h2>
                 </div>
                 {isOwner && currentUserId && pathId && (
@@ -1021,28 +1137,38 @@ export default function UnifiedPathPage() {
                   }
 
                   return (
-                    <Card key={i} className={`relative ${isOwner ? "group transition-all hover:border-blue-200 hover:shadow-md dark:hover:border-blue-800" : "border-zinc-200 dark:border-zinc-800"}`}>
+                    <Card key={i} className={`relative ${isOwner ? "group transition-all hover:border-blue-200 dark:hover:border-blue-800" : "border-zinc-200 dark:border-zinc-800"}`}>
+                      {/* Trash icon button - appears on hover for all resources */}
+                      {isOwner && toolId && (
+                        <div 
+                          className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                          }}
+                        >
+                          <RemoveFromPathButton
+                            pathId={pathId!}
+                            resourceId={toolId}
+                            onStatusChange={handleStatusChange}
+                          />
+                        </div>
+                      )}
                       <CardHeader>
                         <div className="shrink-0 mt-1">
                           <ResourceIcon 
                             logo_url={toolId ? resourceLogos[toolId] : undefined}
                             url={tool.url}
                             name={tool.title}
-                            className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
+                            className="w-16 h-16 rounded-lg object-contain bg-white p-1"
                           />
                         </div>
                         <div className="flex items-center justify-between gap-2">
-                          <CardTitle className="text-lg">{tool.title}</CardTitle>
-                          {/* Status Badge: Show suggested badge if not added */}
-                          {toolId && pathResourceStatus === 'suggested' && (
-                            <span className="text-xs px-2 py-1 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
-                              Suggested
-                            </span>
-                          )}
+                          <CardTitle className="text-sm font-semibold">{tool.title}</CardTitle>
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                        <p className="mb-2 text-xs text-zinc-500 line-clamp-2">
                           {tool.description}
                         </p>
                         {tool.capabilities && tool.capabilities.length > 0 && (
@@ -1054,13 +1180,8 @@ export default function UnifiedPathPage() {
                             ))}
                           </div>
                         )}
-                        {tool.url && (
-                          <a href={tool.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">
-                            View Tool →
-                          </a>
-                        )}
                         {isOwner && toolId && (
-                          <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
+                          <div className="mt-4 flex items-center gap-2 flex-wrap">
                             <StackManager 
                               resourceId={toolId} 
                               initialStatus={getInitialStackStatus()}
@@ -1068,6 +1189,16 @@ export default function UnifiedPathPage() {
                               pathResourceStatus={pathResourceStatus}
                               onStatusChange={handleStatusChange}
                             />
+                            {tool.url && (
+                              <a 
+                                href={tool.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
+                              >
+                                View Tool
+                              </a>
+                            )}
                           </div>
                         )}
                       </CardContent>
@@ -1083,11 +1214,11 @@ export default function UnifiedPathPage() {
         {pathResourcesList.human_courses && pathResourcesList.human_courses.length > 0 && (
           <section className="mb-20">
             <div className="mb-8 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/30">
-                <GraduationCap className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
+                <GraduationCap className="h-5 w-5 text-orange-600 dark:text-orange-400" />
               </div>
-              <h2 className="text-3xl font-light tracking-tight text-black dark:text-zinc-50">
-                Top 3 Human Skills Courses
+              <h2 className="text-2xl font-normal text-black dark:text-zinc-50">
+                Human Skills
               </h2>
             </div>
             <div className="grid gap-6 md:grid-cols-3">
@@ -1150,35 +1281,40 @@ export default function UnifiedPathPage() {
                 }
                 
                 return (
-                  <Card key={i} className={isOwner ? "group transition-all hover:border-purple-200 hover:shadow-md dark:hover:border-purple-800" : "border-zinc-200 dark:border-zinc-800"}>
+                  <Card key={i} className={`relative ${isOwner ? "group transition-all hover:border-purple-200 dark:hover:border-purple-800" : "border-zinc-200 dark:border-zinc-800"}`}>
+                    {/* Trash icon button - appears on hover for all resources */}
+                    {isOwner && courseId && (
+                      <div 
+                        className="absolute top-3 right-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }}
+                      >
+                        <RemoveFromPathButton
+                          pathId={pathId!}
+                          resourceId={courseId}
+                          onStatusChange={handleStatusChange}
+                        />
+                      </div>
+                    )}
                     <CardHeader>
                       <div className="shrink-0 mt-1">
                         <ResourceIcon 
                           logo_url={courseId ? resourceLogos[courseId] : course.logo_url}
                           url={course.url}
                           name={course.title}
-                          className="w-16 h-16 rounded-md object-contain bg-white border border-zinc-100 p-1"
+                          className="w-16 h-16 rounded-lg object-contain bg-white p-1"
                         />
                       </div>
-                      <CardTitle className="text-lg">{course.title}</CardTitle>
-                      {/* Status Badge: Show suggested badge if not added */}
-                      {courseId && pathResourceStatus === 'suggested' && (
-                        <span className="text-xs px-2 py-1 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400 mt-2 inline-block">
-                          Suggested
-                        </span>
-                      )}
+                      <CardTitle className="text-sm font-semibold">{course.title}</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                      <p className="mb-3 text-xs text-zinc-500 line-clamp-2">
                         {course.description}
                       </p>
-                      {course.url && (
-                        <a href={course.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400">
-                          View Course →
-                        </a>
-                      )}
                       {isOwner && courseId && (
-                        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
+                        <div className="mt-4 flex items-center gap-2 flex-wrap">
                           <StackManager 
                             resourceId={courseId} 
                             initialStatus={getInitialStackStatus()}
@@ -1187,6 +1323,16 @@ export default function UnifiedPathPage() {
                             pathResourceStatus={pathResourceStatus}
                             onStatusChange={handleStatusChange}
                           />
+                          {course.url && (
+                            <a 
+                              href={course.url} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
+                            >
+                              View Course
+                            </a>
+                          )}
                         </div>
                       )}
                     </CardContent>
@@ -1197,84 +1343,107 @@ export default function UnifiedPathPage() {
           </section>
         )}
 
-        {/* Immediate Steps */}
-        {immediateSteps.length > 0 && (
+        {/* Next Steps */}
+        {(immediateSteps.length > 0 || isOwner) && (
           <section className="mb-20">
             <div className="mb-8 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
-                <Footprints className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/30">
+                <Footprints className="h-5 w-5 text-purple-600 dark:text-purple-400" />
               </div>
-              <h2 className="text-3xl font-light tracking-tight text-black dark:text-zinc-50">
-                {isOwner ? "Your Immediate Action Plan" : "Immediate Steps"}
+              <h2 className="text-2xl font-normal text-black dark:text-zinc-50">
+                Next Steps
               </h2>
             </div>
-            <div className="grid gap-4">
-              {immediateSteps.map((step, i) => (
-                <Card key={i} className={`${isOwner ? 'border-l-4 border-l-emerald-500 transition-all hover:bg-zinc-50 dark:hover:bg-zinc-900' : 'border-zinc-200 dark:border-zinc-800'}`}>
-                  <CardContent className="flex items-start gap-4 p-6">
-                    {isOwner ? (
-                      <>
-                        <Checkbox
-                          checked={step.is_completed}
-                          onCheckedChange={() => handleToggleStep(i)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-1">
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-                              {i + 1}
-                            </div>
-                            <p
-                              className={`text-lg ${
-                                step.is_completed 
-                                  ? "line-through text-zinc-500 dark:text-zinc-500" 
-                                  : "text-zinc-700 dark:text-zinc-300"
-                              } cursor-pointer`}
-                              onClick={() => handleToggleStep(i)}
-                            >
-                              {step.text}
-                            </p>
+            <div className="border border-zinc-200 dark:border-zinc-800 rounded-md overflow-hidden">
+              <table className="w-full">
+                <tbody className="bg-white dark:bg-zinc-950 divide-y divide-zinc-200 dark:divide-zinc-800">
+                  {immediateSteps.length > 0 ? (
+                    immediateSteps.map((step, i) => (
+                      <tr key={i} className={`${step.is_completed ? 'opacity-60' : ''} ${isOwner ? 'hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer group' : ''}`} onClick={() => isOwner && handleToggleStep(i)}>
+                        {isOwner && (
+                          <td className="px-4 py-3">
+                            <Checkbox
+                              checked={step.is_completed}
+                              onCheckedChange={() => handleToggleStep(i)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </td>
+                        )}
+                        <td className="px-4 py-3">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-100 text-sm font-bold text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                            {i + 1}
                           </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className={`${
+                            step.is_completed 
+                              ? "line-through text-zinc-500 dark:text-zinc-500" 
+                              : "text-zinc-700 dark:text-zinc-300"
+                          }`}>
+                            {step.text}
+                          </p>
+                        </td>
+                        {isOwner && (
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                handleRemoveStep(i)
+                              }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/20 rounded p-1"
+                              title="Remove step"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      {isOwner && <td className="px-4 py-3"></td>}
+                      <td className="px-4 py-3" colSpan={isOwner ? 2 : 2}>
+                        <p className="text-sm text-zinc-500 dark:text-zinc-400">No steps yet</p>
+                      </td>
+                      {isOwner && <td className="px-4 py-3"></td>}
+                    </tr>
+                  )}
+                  {isOwner && (
+                    <tr className="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800">
+                      {isOwner && <td className="px-4 py-3"></td>}
+                      <td className="px-4 py-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-800 text-sm font-bold text-zinc-500 dark:text-zinc-400">
+                          +
                         </div>
-                      </>
-                    ) : (
-                      <>
-                        <span className={`mt-0.5 ${step.is_completed ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`}>
-                          {step.is_completed ? '✓' : `${i + 1}.`}
-                        </span>
-                        <span className={`flex-1 ${step.is_completed ? 'text-zinc-500 dark:text-zinc-500 line-through' : 'text-zinc-700 dark:text-zinc-300'}`}>
-                          {step.text}
-                        </span>
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
+                      </td>
+                      <td className="px-4 py-3">
+                        <form onSubmit={(e) => { e.preventDefault(); handleAddStep(); }} className="flex items-center gap-2">
+                          <Input
+                            type="text"
+                            value={newStepText}
+                            onChange={(e) => setNewStepText(e.target.value)}
+                            placeholder="Add a new step..."
+                            className="flex-1"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddStep();
+                              }
+                            }}
+                          />
+                        </form>
+                      </td>
+                      {isOwner && <td className="px-4 py-3"></td>}
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </section>
         )}
 
-        {/* Accountability Bridge (only for owners) */}
-        {isOwner && (
-          <section>
-            <Card className="border-2">
-              <CardHeader>
-                <CardTitle className="text-2xl font-light tracking-tight">
-                  Accountability Bridge
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col items-start gap-4">
-                <p className="text-zinc-600 dark:text-zinc-400">
-                  Set a check-in reminder to track your progress on your Human+ journey.
-                </p>
-                <Button onClick={() => alert("Check-in reminder set!")} size="lg" className="gap-2">
-                  <Calendar className="h-4 w-4" />
-                  Check-in
-                </Button>
-              </CardContent>
-            </Card>
-          </section>
-        )}
 
         {/* Created with HumanVQ Badge (only for non-owners) */}
         {!isOwner && (

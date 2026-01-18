@@ -17,8 +17,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { Trash2, ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import { Trash2 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 
 interface ProfileFormData {
@@ -183,26 +182,14 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-black">
+    <div className="min-h-screen">
       <main className="mx-auto max-w-2xl px-6 py-16">
-        {/* Back Button */}
-        <div className="mb-8">
-          <Link href={userId ? `/u/${userId}` : "/"}>
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Back to Portfolio
-            </Button>
-          </Link>
-        </div>
 
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 mb-2">
+          <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
             Settings
           </h1>
-          <p className="text-zinc-600 dark:text-zinc-400">
-            Manage your account settings and preferences
-          </p>
         </div>
 
         {/* Profile Settings Card */}

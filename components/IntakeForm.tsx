@@ -51,14 +51,19 @@ interface IntakeFormProps {
   showCard?: boolean;
 }
 
-// 🎯 PRE-DEFINED ROLES CONFIGURATION
+// 🎯 PRE-DEFINED FOCUS AREAS CONFIGURATION
 const PREDEFINED_ROLES = [
-  { id: "founder", label: "Founder / Exec", icon: Rocket, value: "Founder or Executive" },
-  { id: "product", label: "Product Manager", icon: Briefcase, value: "Product Manager" },
-  { id: "dev", label: "Developer", icon: Code2, value: "Software Engineer" },
-  { id: "marketing", label: "Marketing / Content", icon: Megaphone, value: "Marketing Specialist" },
-  { id: "sales", label: "Sales / Biz Dev", icon: LineChart, value: "Sales Representative" },
-  { id: "other", label: "Other / Custom", icon: MoreHorizontal, value: "custom" },
+  // Business Units
+  { id: "marketing-team", label: "Marketing Team", icon: Megaphone, value: "Marketing Team", category: "Business Units" },
+  { id: "design-team", label: "Design Team", icon: Code2, value: "Design Team", category: "Business Units" },
+  { id: "sales-dept", label: "Sales Dept", icon: LineChart, value: "Sales Dept", category: "Business Units" },
+  { id: "product-org", label: "Product Org", icon: Briefcase, value: "Product Org", category: "Business Units" },
+  // Entrepreneurial Focus
+  { id: "growth-user-acq", label: "Growth & User Acq", icon: Rocket, value: "Growth & User Acq", category: "Entrepreneurial Focus" },
+  { id: "operations", label: "Operations", icon: LineChart, value: "Operations", category: "Entrepreneurial Focus" },
+  // Individual Projects
+  { id: "side-project", label: "Side Project", icon: Code2, value: "Side Project", category: "Individual Projects" },
+  { id: "other", label: "Custom Focus", icon: MoreHorizontal, value: "custom", category: "Custom" },
 ]
 
 export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: IntakeFormProps) {
@@ -280,10 +285,10 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
         
-        {/* 1. VISUAL ROLE SELECTOR */}
-        <div className="space-y-3">
-          <FormLabel>What best describes your role?</FormLabel>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {/* 1. VISUAL FOCUS AREA SELECTOR */}
+        <div className="space-y-2">
+          <FormLabel>This path is for?</FormLabel>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {PREDEFINED_ROLES.map((role) => {
                   const Icon = role.icon
                   const isSelected = !showCustomRole && currentRoleValue === role.value
@@ -295,19 +300,19 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
                       key={role.id}
                       onClick={() => handleRoleSelect(role.value)}
                       className={cn(
-                        "cursor-pointer relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 p-4 transition-all hover:bg-zinc-50 dark:hover:bg-zinc-800",
+                        "cursor-pointer relative flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 p-2.5 transition-all hover:bg-zinc-50 dark:hover:bg-zinc-800",
                         isActive 
                           ? "border-black bg-zinc-50 dark:border-white dark:bg-zinc-800" 
                           : "border-zinc-100 bg-white dark:border-zinc-800 dark:bg-zinc-900"
                       )}
                     >
                       {isActive && (
-                        <div className="absolute right-2 top-2 text-black dark:text-white">
-                          <CheckCircle2 className="h-4 w-4" />
+                        <div className="absolute right-1.5 top-1.5 text-black dark:text-white">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
                         </div>
                       )}
-                      <Icon className={cn("h-8 w-8", isActive ? "text-black dark:text-white" : "text-zinc-400")} />
-                      <span className={cn("text-xs font-medium", isActive ? "text-black dark:text-white" : "text-zinc-500")}>
+                      <Icon className={cn("h-6 w-6", isActive ? "text-black dark:text-white" : "text-zinc-400")} />
+                      <span className={cn("text-[11px] font-medium", isActive ? "text-black dark:text-white" : "text-zinc-500")}>
                         {role.label}
                       </span>
                     </div>
@@ -315,7 +320,7 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
                 })}
               </div>
 
-              {/* Custom Input appears only if "Other" is selected */}
+              {/* Custom Input appears only if "Custom Focus" is selected */}
               {showCustomRole && (
                 <FormField
                   control={form.control}
@@ -324,7 +329,7 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
                     <FormItem className="animate-in fade-in slide-in-from-top-2">
                       <FormControl>
                         <Input 
-                          placeholder="e.g. Forensic Accountant" 
+                          placeholder="Enter a specific team or activity name" 
                           {...field} 
                           autoFocus 
                           disabled={isSubmitting} 
@@ -337,24 +342,21 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
               )}
             {/* Validation error if they try to submit without picking/typing anything */}
             {!showCustomRole && !currentRoleValue && form.formState.isSubmitted && (
-              <p className="text-sm font-medium text-red-500">Please select a role</p>
+              <p className="text-sm font-medium text-red-500">Please select a focus area</p>
             )}
           </div>
 
-          {/* 2. CONTEXT FIELD */}
+          {/* 2. OPERATIONAL CONTEXT FIELD */}
           <FormField
             control={form.control}
             name="bioContext"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Resume or LinkedIn "About"</FormLabel>
-                <FormDescription>
-                  Paste your bio or resume to help AI understand your daily tasks.
-                </FormDescription>
+                <FormLabel>Current Context</FormLabel>
                 <FormControl>
                   <Textarea 
-                    placeholder="Paste text here..." 
-                    className="min-h-[120px] font-mono text-sm"
+                    placeholder="e.g., 'Our Design team manually crops 50 images a day...' or 'I spend 4 hours a week researching competitors...'" 
+                    className="min-h-[120px]"
                     {...field} 
                     disabled={isSubmitting} 
                   />
@@ -364,15 +366,15 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
             )}
           />
 
-          {/* 3. MAIN GOAL */}
+          {/* 3. LEVERAGE OBJECTIVE */}
           <FormField
             control={form.control}
             name="mainGoal"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Main Goal (Next 6 months)</FormLabel>
+                <FormLabel>Short Term Goal</FormLabel>
                 <FormControl>
-                  <Input placeholder="e.g. Automate reporting" {...field} disabled={isSubmitting} />
+                  <Input placeholder="e.g., 'Automate SEO report generation' or 'Scale content production without increasing headcount.'" {...field} disabled={isSubmitting} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -386,35 +388,21 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
             </div>
           )}
 
-          {/* ACTION BUTTONS */}
-          <div className="flex gap-3 pt-2">
-            <Button 
-              type="button" 
-              variant="outline" 
-              className="w-1/3 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-              onClick={() => {
-                  form.reset({
-                    currentRole: "",
-                    bioContext: "",
-                    mainGoal: "",
-                  });
-                  setShowCustomRole(false);
-              }}
-              disabled={isSubmitting}
-            >
-              Clear
-            </Button>
-
+          {/* THE CALCULATION */}
+          <div className="space-y-3 pt-2">
             <Button 
               type="submit" 
               size="lg" 
-              className="w-2/3" 
+              className="w-full" 
               disabled={isSubmitting}
             >
               {isSubmitting 
                 ? (isEditMode ? "Updating..." : "Analyzing...") 
-                : (isEditMode ? "Update Strategy" : "Generate Path")}
+                : (isEditMode ? "Update Strategy" : "Analyze & Generate Path")}
             </Button>
+            <p className="text-xs text-center text-zinc-500 dark:text-zinc-400">
+              This will identify specific AI Tools, Human Skills, and Steps to protect and scale this focus area.
+            </p>
           </div>
         </form>
       </Form>
@@ -432,19 +420,22 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
   return (
     <>
       <PathGenerationModal isOpen={isWaitingForPath} currentStep={generationStep} />
-      <Card className="w-full max-w-2xl border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <CardHeader>
-          <CardTitle className="text-2xl font-light tracking-tight">
-            Tell us about yourself
-        </CardTitle>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Select your role or enter a custom one to get started.
+      
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
+          Initiate a Strategy Path
+        </h1>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2">
+          Define the Focus Area for this path to calculate its specific HVQ Score and roadmap.
         </p>
-      </CardHeader>
-      <CardContent>
-        {formContent}
-      </CardContent>
-    </Card>
+      </div>
+
+      <Card className="w-full max-w-2xl border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <CardContent>
+          {formContent}
+        </CardContent>
+      </Card>
     </>
   )
 }

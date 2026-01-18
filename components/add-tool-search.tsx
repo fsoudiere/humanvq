@@ -117,30 +117,32 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
         <input
           type="text"
           placeholder="Type to add (e.g. 'Cursor' or 'Web Dev Course')..."
-          className="w-full pl-10 pr-4 py-2 border rounded-full focus:outline-none focus:ring-2 focus:ring-black text-sm"
+          className="w-full pl-10 pr-4 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500 text-sm"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
 
       {query.length >= 2 && !loading && (
-        <div className="absolute z-50 w-full mt-2 bg-white border rounded-xl shadow-xl overflow-hidden">
+        <div className="absolute z-50 w-full mt-1 bg-white border rounded-xl shadow-xl overflow-hidden">
           {results.map((tool) => (
             <div
               key={tool.id}
               onClick={() => addToStack(tool)} // Pass the whole tool object, not just ID
               className="p-3 hover:bg-gray-50 cursor-pointer flex justify-between items-center border-b"
             >
-              <div>
-                <div className="shrink-0 bg-white p-1 border border-zinc-100 rounded">
-                  <ResourceIcon
-                    url={tool.url}
-                    name={tool.name}
-                    className="w-6 h-6 object-contain"
-                  />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="shrink-0 bg-white p-1 rounded">
+                    <ResourceIcon
+                      url={tool.url}
+                      name={tool.name}
+                      className="w-6 h-6 object-contain"
+                    />
+                  </div>
+                  <p className="font-semibold text-sm text-gray-900 truncate">{tool.name}</p>
                 </div>
-                <p className="font-semibold text-sm text-gray-900">{tool.name}</p>
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-center pl-[34px]">
                   {tool.type === 'human_course' && (
                     <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 rounded">Course</span>
                   )}
@@ -149,7 +151,11 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
               </div>
               <button
                 disabled={adding === tool.id}
-                className="text-xs bg-black text-white px-3 py-1 rounded-full flex items-center gap-1 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  addToStack(tool)
+                }}
+                className="text-xs border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 px-3 py-1 rounded-full flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 ml-2"
               >
                 <Plus className="w-3 h-3" /> {adding === tool.id ? "Adding..." : "Add"}
               </button>
@@ -159,18 +165,18 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
           {/* Always show "Suggest" option after 2 characters, regardless of results */}
           <div
             onClick={() => setShowMissingModal(true)}
-            className={`p-3 hover:bg-blue-50 cursor-pointer flex items-center gap-3 ${results.length > 0 ? 'border-t border-blue-100 bg-blue-50/30' : 'bg-blue-50/30'}`}
+            className={`p-3 hover:bg-gray-50 dark:hover:bg-zinc-900 cursor-pointer flex items-center gap-3 ${results.length > 0 ? 'border-t border-zinc-200 dark:border-zinc-800 bg-gray-50 dark:bg-zinc-900' : 'bg-gray-50 dark:bg-zinc-900'}`}
           >
-            <Sparkles className="w-5 h-5 text-blue-500" />
+            <Sparkles className="w-5 h-5 text-gray-900 dark:text-zinc-100" />
             <div className="flex-1">
-              <p className="font-semibold text-sm text-blue-900">
+              <p className="font-semibold text-sm text-gray-900 dark:text-zinc-100">
                 {results.length > 0 ? `Add "${query}" anyway?` : `"${query}" not found?`}
               </p>
-              <p className="text-xs text-blue-600">
+              <p className="text-xs text-gray-600 dark:text-zinc-400">
                 Suggest this tool/course to add it to the library
               </p>
             </div>
-            <button className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-full flex items-center gap-1 hover:bg-blue-700">
+            <button className="text-xs bg-black hover:bg-gray-800 dark:bg-black dark:hover:bg-gray-800 text-white px-3 py-1.5 rounded-full flex items-center gap-1">
               <Plus className="w-3 h-3" /> Suggest
             </button>
           </div>
