@@ -35,27 +35,27 @@ export default function CourseGroup({ title, items, isOwner, username, icon, col
       <div className="grid gap-6 md:grid-cols-3">
         {items.map((item: any) => {
           const statusInfo = item.status ? getStatusInfo(item.status) : null
-          
+
           return (
             <div key={item.resource.id} className="bg-white p-6 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all flex flex-col h-full">
               <div className="shrink-0 mt-1">
-                 <ResourceIcon 
-                   url={item.resource.url}
-                   logo_url={item.resource.logo_url}
-                   name={item.resource.name}
-                   className="w-16 h-16 rounded object-contain"
-                 />
-                </div>
+                <ResourceIcon
+                  url={item.resource.url}
+                  logodev={item.resource.logodev}
+                  name={item.resource.name}
+                  className="w-16 h-16 rounded object-contain"
+                />
+              </div>
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-sm text-zinc-900">{item.resource.name}</span>
                 </div>
               </div>
-              
-              <p className="text-xs text-zinc-500 mb-3 line-clamp-2">
+
+              <p className="text-xs text-zinc-500 mb-3">
                 {item.resource.description}
               </p>
-              
+
               <div className="mt-4 flex items-center gap-2 flex-wrap">
                 {statusInfo && (
                   <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border ${statusInfo.color}`}>
@@ -63,9 +63,9 @@ export default function CourseGroup({ title, items, isOwner, username, icon, col
                   </span>
                 )}
                 {item.resource.url && (
-                  <a 
-                    href={item.resource.url} 
-                    target="_blank" 
+                  <a
+                    href={item.resource.url}
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
                   >

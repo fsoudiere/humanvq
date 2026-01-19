@@ -40,7 +40,7 @@ export default function TierSection({ title, items, isOwner, username, paths }: 
               <div className="shrink-0 mt-1">
                 <ResourceIcon 
                   url={item.resource.url}
-                  logo_url={item.resource.logo_url}
+                  logodev={item.resource.logodev}
                   name={item.resource.name}
                   className="w-16 h-16 rounded-md object-contain bg-white p-1"
                 />
@@ -48,7 +48,7 @@ export default function TierSection({ title, items, isOwner, username, paths }: 
               <div className="flex justify-between items-start mb-2">
                 <span className="font-semibold text-sm pr-6">{item.resource.name}</span>
               </div>
-              <p className="text-xs text-zinc-500 line-clamp-2 mb-2">{item.resource.description}</p>
+              <p className="text-xs text-zinc-500 mb-2">{item.resource.description}</p>
               
               <div className="mt-4 flex items-center gap-2 flex-wrap">
                 {statusInfo && (

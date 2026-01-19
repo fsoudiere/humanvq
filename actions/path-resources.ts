@@ -70,8 +70,8 @@ async function calculatePathHVQScore(pathId: string): Promise<number | null> {
     ? JSON.parse(pathData.efficiency_audit || '{}')
     : (pathData.efficiency_audit || {})
   
-  const completedDelegateTasks = Array.isArray(efficiencyAudit.delegate_to_machine)
-    ? efficiencyAudit.delegate_to_machine.filter((task: any) => task.is_completed).length
+  const completedDelegateTasks = Array.isArray(efficiencyAudit?.delegate_to_machine)
+    ? (efficiencyAudit.delegate_to_machine || []).filter((task: any) => task.is_completed).length
     : 0
   const delegatePoints = completedDelegateTasks * 10
   

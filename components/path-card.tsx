@@ -122,7 +122,7 @@ export function PathCard({
             {/* Path Details - Goal and Role only */}
             <div className="flex-1 space-y-2 mb-2">
               {mainGoal && (
-                <p className="text-sm text-zinc-600 dark:text-zinc-400 line-clamp-2">
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
                   {mainGoal}
                 </p>
               )}

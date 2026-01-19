@@ -64,7 +64,7 @@ export default function SkillsPage() {
         .select(`
           *,
           resource:resources (
-            id, name, description, url, logo_url, capabilities, type
+            id, name, description, url, logodev, capabilities, type
           ),
           upgrade_paths (
             id,

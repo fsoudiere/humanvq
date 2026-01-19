@@ -6,7 +6,7 @@ import { createClient } from "@/utils/supabase/client"
 import { FilterBar } from "@/components/filter-bar"
 import TierSection from "@/components/tier-section"
 import { Card, CardContent } from "@/components/ui/card"
-import { Wrench } from "lucide-react"
+import { Bot } from "lucide-react"
 
 export default function ToolsPage() {
   const params = useParams()
@@ -64,7 +64,7 @@ export default function ToolsPage() {
         .select(`
           *,
           resource:resources (
-            id, name, description, url, logo_url, capabilities, type
+            id, name, description, url, logodev, capabilities, type
           ),
           upgrade_paths (
             id,
@@ -161,7 +161,7 @@ export default function ToolsPage() {
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
-              <Wrench className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              <Bot className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             </div>
             <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
               AI Toolstack

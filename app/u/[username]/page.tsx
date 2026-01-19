@@ -2,7 +2,7 @@ import { createClient } from "@/utils/supabase/server"
 import { ShareButton } from "@/components/share-button"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { BookOpen, Wrench, GraduationCap, CheckCircle2, Clock, ListTodo, Target, Settings, LayoutDashboard, Activity, Plus } from "lucide-react"
+import { BookOpen, Wrench, GraduationCap, CheckCircle2, Clock, ListTodo, Target, Settings, LayoutDashboard, Activity, Bot, Plus } from "lucide-react"
 import { Metadata } from "next"
 import ResourceIcon from "@/components/resource-icon"
 import { Card, CardContent } from "@/components/ui/card"
@@ -132,7 +132,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
     .select(`
       *,
       resource:resources (
-        id, name, description, url, logo_url, capabilities, type
+        id, name, description, url, logodev, capabilities, type
       ),
       upgrade_paths (
         id,
@@ -154,7 +154,13 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   console.log('Path Resources found for user:', allPathResources?.length || 0)
 
   if (pathResourcesError) {
-    console.error("Error fetching path_resources:", pathResourcesError)
+    console.error("Error fetching path_resources:", {
+      message: pathResourcesError.message,
+      details: pathResourcesError.details,
+      hint: pathResourcesError.hint,
+      code: pathResourcesError.code,
+      fullError: pathResourcesError
+    })
   }
 
   // STEP 6: Filter out null resources and deduplicate
@@ -462,7 +468,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
           <div className="flex items-center justify-between mb-2">
             <div className="text-xs text-zinc-500 dark:text-zinc-400">Time Saved</div>
             <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-              <Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <Bot className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             </div>
           </div>
           <div className="flex items-center justify-between">
@@ -666,7 +672,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                 <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
-                      <Activity className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                      <Bot className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                     </div>
                     <h2 className="text-2xl font-normal text-zinc-900">AI Toolstack</h2>
                     <span className="text-xs bg-zinc-100 text-zinc-500 px-2 py-1 rounded-full font-normal">

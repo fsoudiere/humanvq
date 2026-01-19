@@ -13,7 +13,7 @@ interface ResourceItem {
   title: string
   description: string
   url?: string
-  logo_url?: string
+  logodev?: string
   hvq_score_machine?: number
   hvq_score_human?: number
 }
@@ -46,7 +46,7 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
       // 👇 WE MUST SELECT 'type' TO KNOW IF IT IS A COURSE
       const { data } = await supabase
         .from("resources")
-        .select("id, name, description, type, url")
+        .select("id, name, description, type, url, logodev")
         .ilike("name", `%${query}%`)
         .limit(5)
 
@@ -77,7 +77,7 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
         title: tool.name,
         description: tool.description || "",
         url: tool.url,
-        logo_url: undefined, // Will be fetched on refresh
+        logodev: tool.logodev,
         hvq_score_machine: undefined, // Will be fetched on refresh
         hvq_score_human: undefined // Will be fetched on refresh
       }
@@ -136,6 +136,7 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
                   <div className="shrink-0 bg-white p-1 rounded">
                     <ResourceIcon
                       url={tool.url}
+                      logodev={tool.logodev}
                       name={tool.name}
                       className="w-6 h-6 object-contain"
                     />

@@ -38,7 +38,7 @@ interface ResourceItem {
   userId?: string
   title: string
   description: string
-  logo_url?: string
+  logodev?: string
   url?: string
   capabilities?: string[]
   difficulty_level?: number
@@ -102,6 +102,8 @@ export default function UnifiedPathPage() {
   const username = params.username as string
   const slug = params.slug as string
 
+  console.log("🚀 [Path Page] Component mounted/rendered with params:", { username, slug })
+
   const [state, setState] = useState<AppState>("loading")
   const [upgradeData, setUpgradeData] = useState<UpgradePathData | null>(null)
   const [isPolling, setIsPolling] = useState(false)
@@ -150,10 +152,10 @@ export default function UnifiedPathPage() {
   useEffect(() => {
     const fetchLogos = async () => {
       const supabase = createClient()
-      const { data } = await supabase.from("resources").select("id, logo_url")
+      const { data } = await supabase.from("resources").select("id, logodev")
       if (data) {
         const logoMap = data.reduce((acc, curr) => {
-          if (curr.logo_url) acc[curr.id] = curr.logo_url
+          if (curr.logodev) acc[curr.id] = curr.logodev
           return acc
         }, {} as Record<string, string>)
         setResourceLogos(logoMap)
@@ -165,24 +167,34 @@ export default function UnifiedPathPage() {
   // Fetch path by slug and username
   useEffect(() => {
     const fetchPath = async () => {
+      console.log("🔍 [Path Page] Starting fetchPath")
+      console.log("🔍 [Path Page] Params - username:", username, "slug:", slug)
+      
       const supabase = createClient()
       
       // Get current user for ownership check
       const { data: { user } } = await supabase.auth.getUser()
+      console.log("🔍 [Path Page] Current user:", user?.id || "not authenticated")
       setCurrentUserId(user?.id || null)
 
       // STEP 1: Fetch profile by username from URL
-      const { data: profile } = await supabase
+      console.log("🔍 [Path Page] Fetching profile for username:", username)
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("user_id, full_name, username, is_organization, organization_name")
         .eq("username", username)
         .maybeSingle()
 
+      console.log("🔍 [Path Page] Profile fetch result:", { profile, profileError })
+
       if (!profile) {
+        console.error("❌ [Path Page] Profile not found for username:", username)
         setState("error")
         setErrorMessage(`User with username "${username}" not found`)
         return
       }
+
+      console.log("✅ [Path Page] Profile found:", profile.user_id)
 
       setProfileData({
         user_id: profile.user_id,
@@ -194,7 +206,18 @@ export default function UnifiedPathPage() {
       // STEP 2: Fetch path with nested path_resources and resources
       // Using explicit column names: hvq_score_machine, hvq_score_human, impact_weight, and current_hvq_score
       // Note: current_hvq_score is persisted after status updates in actions/path-resources.ts
-      const { data: path, error: pathError } = await supabase
+      
+      // Helper function to check if a string is a UUID
+      const isUUID = (str: string): boolean => {
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        return uuidRegex.test(str)
+      }
+
+      console.log("🔍 [Path Page] Fetching path with slug:", slug, "for user_id:", profile.user_id)
+      console.log("🔍 [Path Page] Slug is UUID?", isUUID(slug))
+      
+      // First, try to fetch by slug
+      let { data: path, error: pathError } = await supabase
         .from("upgrade_paths")
         .select(`
           *,
@@ -207,7 +230,7 @@ export default function UnifiedPathPage() {
               type,
               description,
               url,
-              logo_url,
+              logodev,
               hvq_score_machine,
               hvq_score_human
             )
@@ -217,23 +240,98 @@ export default function UnifiedPathPage() {
         .eq("user_id", profile.user_id)
         .maybeSingle()
 
+      console.log("🔍 [Path Page] Path fetch by slug result:", { 
+        pathFound: !!path, 
+        pathId: path?.id,
+        pathTitle: path?.path_title,
+        pathSlug: path?.slug,
+        pathError: pathError ? {
+          message: pathError.message,
+          details: pathError.details,
+          hint: pathError.hint,
+          code: pathError.code
+        } : null
+      })
+
+      // If path not found by slug AND slug looks like a UUID (path ID), try fetching by ID instead
+      // This handles the case where slug is NULL in the database
+      if ((!path || pathError) && isUUID(slug)) {
+        console.log("🔄 [Path Page] Path not found by slug, trying to fetch by ID (UUID):", slug)
+        const { data: pathById, error: pathByIdError } = await supabase
+          .from("upgrade_paths")
+          .select(`
+            *,
+            path_resources (
+              status,
+              impact_weight,
+              resources (
+                id,
+                name,
+                type,
+                description,
+                url,
+                logodev,
+                hvq_score_machine,
+                hvq_score_human
+              )
+            )
+          `)
+          .eq("id", slug)
+          .eq("user_id", profile.user_id)
+          .maybeSingle()
+
+        console.log("🔍 [Path Page] Path fetch by ID result:", { 
+          pathFound: !!pathById, 
+          pathId: pathById?.id,
+          pathTitle: pathById?.path_title,
+          pathSlug: pathById?.slug,
+          pathByIdError: pathByIdError ? {
+            message: pathByIdError.message,
+            details: pathByIdError.details,
+            hint: pathByIdError.hint,
+            code: pathByIdError.code
+          } : null
+        })
+
+        if (pathById && !pathByIdError) {
+          path = pathById
+          pathError = null
+          console.log("✅ [Path Page] Found path by ID, slug in DB is:", path.slug || "NULL")
+        } else {
+          pathError = pathByIdError || pathError
+        }
+      }
+
+      if (pathError) {
+        console.error("❌ [Path Page] Path fetch error:", pathError)
+      }
+
       if (pathError || !path) {
+        console.error("❌ [Path Page] Path not found - slug:", slug, "user_id:", profile.user_id)
         setState("error")
         setErrorMessage("Path not found")
         return
       }
+
+      console.log("✅ [Path Page] Path found:", path.id, "Title:", path.path_title)
 
       setPathId(path.id)
       setIsPublic(path.is_public || false)
 
       // Check ownership: auth.user.id === path.user_id
       const ownerCheck = user && user.id === path.user_id
+      console.log("🔍 [Path Page] Ownership check:", { 
+        isOwner: ownerCheck, 
+        currentUserId: user?.id, 
+        pathUserId: path.user_id,
+        isPublic: path.is_public 
+      })
       setIsOwner(ownerCheck || false)
 
       // Process path_resources: filter out removed and separate by type
       if (path.path_resources && Array.isArray(path.path_resources)) {
         // UI Filter: Only render items where status !== 'removed'
-        const visiblePathResources = path.path_resources.filter(
+        const visiblePathResources = (path.path_resources || []).filter(
           (pr: any) => pr.status !== 'removed'
         )
 
@@ -256,7 +354,7 @@ export default function UnifiedPathPage() {
               title: resource.name,
               description: resource.description || "",
               url: resource.url,
-              logo_url: resource.logo_url,
+              logodev: resource.logodev,
               hvq_score_machine: resource.hvq_score_machine,
               hvq_score_human: resource.hvq_score_human,
             }
@@ -283,6 +381,7 @@ export default function UnifiedPathPage() {
 
       // If not owner and not public, show 404
       if (!ownerCheck && !path.is_public) {
+        console.error("❌ [Path Page] Access denied - path is private")
         setState("error")
         setErrorMessage("This strategy is private")
         return
@@ -301,10 +400,13 @@ export default function UnifiedPathPage() {
 
       // Check if path_title is still 'Untitled Path' - show loading state
       if (pathTitleValue === "Untitled Path") {
+        console.log("⏳ [Path Page] Path is still being generated (Untitled Path)")
         if (ownerCheck) {
+          console.log("⏳ [Path Page] Owner - showing analyzing state and starting polling")
           setState("analyzing")
           setIsPolling(true)
         } else {
+          console.error("❌ [Path Page] Non-owner trying to access path that's not ready")
           setState("error")
           setErrorMessage("Path is not ready yet")
         }
@@ -312,15 +414,29 @@ export default function UnifiedPathPage() {
       }
 
       // Check if slug changed (UUID to title-based) and redirect if needed
+      // Only redirect if slug exists and is different from current slug and not the path ID
       if (path.slug && path.slug !== slug && path.slug !== path.id) {
+        console.log("🔄 [Path Page] Slug mismatch - redirecting:", {
+          currentSlug: slug,
+          pathSlug: path.slug,
+          pathId: path.id,
+          redirectTo: `/u/${username}/${path.slug}`
+        })
         // Slug was updated to title-based, redirect to new URL
         router.replace(`/u/${username}/${path.slug}`)
         return
       }
 
+      // If slug is NULL in database but we found path by ID, log it but continue rendering
+      if (!path.slug && isUUID(slug)) {
+        console.log("⚠️ [Path Page] Path found by ID but slug is NULL in database. Path will be accessible via ID until slug is generated.")
+      }
+
       // Check if path is ready (has efficiency_audit)
+      console.log("🔍 [Path Page] Checking if path is ready - has efficiency_audit:", !!path.efficiency_audit)
       if (path.efficiency_audit) {
         try {
+          console.log("✅ [Path Page] Path has efficiency_audit - parsing data")
           const efficiency = typeof path.efficiency_audit === 'string' 
             ? JSON.parse(path.efficiency_audit) 
             : path.efficiency_audit
@@ -337,6 +453,12 @@ export default function UnifiedPathPage() {
             current_hvq_score: path.current_hvq_score || null
           }
 
+          console.log("🔍 [Path Page] Path data prepared:", {
+            hasEfficiencyAudit: !!pathData.efficiency_audit,
+            immediateStepsCount: pathData.immediate_steps?.length || 0,
+            currentHvqScore: pathData.current_hvq_score
+          })
+
           // Use current_hvq_score from database (no calculation needed - score is persisted)
           // Fallback to calculated score only if current_hvq_score is not available
           const hvqScore = path.current_hvq_score ?? calculateHVQScore(pathData, pathResourcesList, pathResourceWeights)
@@ -346,18 +468,22 @@ export default function UnifiedPathPage() {
             current_hvq_score: hvqScore
           })
           
+          console.log("✅ [Path Page] Setting state to 'results'")
           setState("results")
           setIsPolling(false)
         } catch (error) {
-          console.error("Error parsing upgrade path data:", error)
+          console.error("❌ [Path Page] Error parsing upgrade path data:", error)
           setState("analyzing")
           setIsPolling(true)
         }
       } else {
+        console.log("⏳ [Path Page] Path not ready yet - no efficiency_audit")
         if (ownerCheck) {
+          console.log("⏳ [Path Page] Owner - showing analyzing state and starting polling")
           setState("analyzing")
           setIsPolling(true)
         } else {
+          console.error("❌ [Path Page] Non-owner trying to access path that's not ready")
           setState("error")
           setErrorMessage("Path is not ready yet")
         }
@@ -403,7 +529,7 @@ export default function UnifiedPathPage() {
               type,
               description,
               url,
-              logo_url,
+              logodev,
               hvq_score_machine,
               hvq_score_human
             )
@@ -440,7 +566,7 @@ export default function UnifiedPathPage() {
           // Process path_resources: filter out removed and separate by type
           if (upgradePath.path_resources && Array.isArray(upgradePath.path_resources)) {
             // UI Filter: Only render items where status !== 'removed'
-            const visiblePathResources = upgradePath.path_resources.filter(
+            const visiblePathResources = (upgradePath.path_resources || []).filter(
               (pr: any) => pr.status !== 'removed'
             )
 
@@ -462,7 +588,7 @@ export default function UnifiedPathPage() {
                   title: resource.name,
                   description: resource.description || "",
                   url: resource.url,
-                  logo_url: resource.logo_url,
+                  logodev: resource.logodev,
                   hvq_score_machine: resource.hvq_score_machine,
                   hvq_score_human: resource.hvq_score_human,
                 }
@@ -569,7 +695,7 @@ export default function UnifiedPathPage() {
     if (!upgradeData?.efficiency_audit?.delegate_to_machine || !isOwner) return
     
     const previousData = upgradeData
-    const updatedDelegateList = upgradeData.efficiency_audit.delegate_to_machine.map((item, i) =>
+    const updatedDelegateList = (upgradeData.efficiency_audit?.delegate_to_machine || []).map((item, i) =>
       i === index ? { ...item, is_completed: !item.is_completed } : item
     )
 
@@ -599,7 +725,7 @@ export default function UnifiedPathPage() {
     if (!upgradeData?.immediate_steps || !isOwner) return
     
     const previousData = upgradeData
-    const updatedSteps = upgradeData.immediate_steps.map((step, i) =>
+    const updatedSteps = (upgradeData.immediate_steps || []).map((step, i) =>
       i === index ? { ...step, is_completed: !step.is_completed } : step
     )
 
@@ -655,6 +781,7 @@ export default function UnifiedPathPage() {
 
   // Loading State
   if (state === "loading") {
+    console.log("⏳ [Path Page] Rendering loading state")
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
         <div className="flex flex-col items-center gap-4">
@@ -687,6 +814,7 @@ export default function UnifiedPathPage() {
 
   // Error State
   if (state === "error") {
+    console.error("❌ [Path Page] Rendering error state:", errorMessage)
     const isPrivateError = errorMessage === "This strategy is private"
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
@@ -718,9 +846,9 @@ export default function UnifiedPathPage() {
     : profileData?.full_name || username
 
   // Calculate path-specific metrics
-  const automatedTasksCompleted = delegateToMachine.filter((task: DelegateTaskItem) => task.is_completed === true).length
-  const stepsCompleted = immediateSteps.filter((step: ImmediateStepItem) => step.is_completed === true).length
-  const toolsAdded = pathResourcesList.ai_tools?.length || 0
+  const automatedTasksCompleted = (delegateToMachine || []).filter((task: DelegateTaskItem) => task.is_completed === true).length
+  const stepsCompleted = (immediateSteps || []).filter((step: ImmediateStepItem) => step.is_completed === true).length
+  const toolsAdded = pathResourcesList?.ai_tools?.length || 0
 
   return (
     <div className="min-h-screen">
@@ -844,7 +972,7 @@ export default function UnifiedPathPage() {
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">Automated Tasks</div>
                 <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                  <Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  <Bot className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 </div>
               </div>
               <div className="flex items-center justify-between">
@@ -1019,9 +1147,9 @@ export default function UnifiedPathPage() {
         </section>
 
         {/* The Power Pack - AI Tools */}
-        {pathResourcesList.ai_tools && pathResourcesList.ai_tools.length > 0 && (() => {
+        {pathResourcesList?.ai_tools && pathResourcesList.ai_tools.length > 0 && (() => {
           // Tools are already filtered (status != 'removed') from the fetch
-          const visibleTools = pathResourcesList.ai_tools
+          const visibleTools = pathResourcesList.ai_tools || []
 
           if (visibleTools.length === 0) return null
 
@@ -1045,7 +1173,7 @@ export default function UnifiedPathPage() {
                       if (type === 'ai_tool') {
                         setPathResourcesList(prev => ({
                           ...prev,
-                          ai_tools: [resource, ...prev.ai_tools]
+                          ai_tools: [resource, ...(prev.ai_tools || [])]
                         }))
                         // Set status to 'wishlisted' for the new tool
                         setPathResources(prev => ({
@@ -1059,7 +1187,7 @@ export default function UnifiedPathPage() {
                       } else if (type === 'human_course') {
                         setPathResourcesList(prev => ({
                           ...prev,
-                          human_courses: [resource, ...prev.human_courses]
+                          human_courses: [resource, ...(prev.human_courses || [])]
                         }))
                         // Set status to 'wishlisted' for the new course
                         setPathResources(prev => ({
@@ -1076,7 +1204,7 @@ export default function UnifiedPathPage() {
                 )}
               </div>
               <div className="grid gap-6 md:grid-cols-3">
-                {visibleTools.map((tool, i) => {
+                {(visibleTools || []).map((tool, i) => {
                   const toolId = tool.id && tool.id !== 'null' ? tool.id : null
                   const pathResourceStatus = toolId ? (pathResources[toolId] || 'suggested') : 'suggested'
                   
@@ -1157,7 +1285,7 @@ export default function UnifiedPathPage() {
                       <CardHeader>
                         <div className="shrink-0 mt-1">
                           <ResourceIcon 
-                            logo_url={toolId ? resourceLogos[toolId] : undefined}
+                            logodev={toolId ? resourceLogos[toolId] || tool.logodev : tool.logodev}
                             url={tool.url}
                             name={tool.title}
                             className="w-16 h-16 rounded-lg object-contain bg-white p-1"
@@ -1168,7 +1296,7 @@ export default function UnifiedPathPage() {
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <p className="mb-2 text-xs text-zinc-500 line-clamp-2">
+                        <p className="mb-2 text-xs text-zinc-500">
                           {tool.description}
                         </p>
                         {tool.capabilities && tool.capabilities.length > 0 && (
@@ -1211,7 +1339,7 @@ export default function UnifiedPathPage() {
         })()}
 
         {/* Human Courses */}
-        {pathResourcesList.human_courses && pathResourcesList.human_courses.length > 0 && (
+        {pathResourcesList?.human_courses && pathResourcesList.human_courses.length > 0 && (
           <section className="mb-20">
             <div className="mb-8 flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
@@ -1222,7 +1350,7 @@ export default function UnifiedPathPage() {
               </h2>
             </div>
             <div className="grid gap-6 md:grid-cols-3">
-              {pathResourcesList.human_courses.map((course, i) => {
+              {(pathResourcesList.human_courses || []).map((course, i) => {
                 const courseId = course.id
                 const pathResourceStatus = courseId ? (pathResources[courseId] || 'suggested') : 'suggested'
                 const isRemoved = pathResourceStatus === 'removed'
@@ -1301,7 +1429,7 @@ export default function UnifiedPathPage() {
                     <CardHeader>
                       <div className="shrink-0 mt-1">
                         <ResourceIcon 
-                          logo_url={courseId ? resourceLogos[courseId] : course.logo_url}
+                          logodev={courseId ? resourceLogos[courseId] || course.logodev : course.logodev}
                           url={course.url}
                           name={course.title}
                           className="w-16 h-16 rounded-lg object-contain bg-white p-1"
@@ -1310,7 +1438,7 @@ export default function UnifiedPathPage() {
                       <CardTitle className="text-sm font-semibold">{course.title}</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="mb-3 text-xs text-zinc-500 line-clamp-2">
+                      <p className="mb-3 text-xs text-zinc-500">
                         {course.description}
                       </p>
                       {isOwner && courseId && (

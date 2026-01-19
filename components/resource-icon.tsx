@@ -6,49 +6,53 @@ import { getLogoUrl } from "@/lib/utils"
 interface ResourceIconProps {
   url?: string
   name: string
-  logo_url?: string // 👈 New prop for your internal Supabase image
+  logodev?: string // Domain name for Logo.dev API
   className?: string
 }
 
-export default function ResourceIcon({ url, name, logo_url, className }: ResourceIconProps) {
-  const [error, setError] = useState(false)
-  console.log(`Resource: ${name} | logo_url:`, logo_url);
-  // 1. Priority 1: Use your internal Supabase logo if it exists
-  // This is safe for image exports (no CORS issues)
-  if (logo_url && !error) {
+export default function ResourceIcon({ url, name, logodev, className }: ResourceIconProps) {
+  const [logoDevError, setLogoDevError] = useState(false)
+  const [googleFaviconError, setGoogleFaviconError] = useState(false)
+  
+  // 1. Priority 1: Use Logo.dev API if logodev is available
+  if (logodev && !logoDevError) {
+    const logoDevUrl = `https://img.logo.dev/${logodev}?token=${process.env.NEXT_PUBLIC_LOGO_DEV_TOKEN}&size=128`
     return (
       <img
-        src={logo_url}
+        src={logoDevUrl}
         alt={name}
         className={className}
-        //onError={() => setError(true)}
         onError={() => {
-            console.error(`Failed to load logo for ${name}: ${logo_url}`);
-            setError(true);
-          }}
+          console.error(`Failed to load Logo.dev logo for ${name}: ${logodev}`)
+          setLogoDevError(true)
+        }}
       />
     )
   }
 
   // 2. Priority 2: Fallback to Google Favicon API
-  // Note: This may still trigger CORS errors during JPG generation
-  const fallbackLogo = url ? getLogoUrl(url) : null
+  const googleFaviconUrl = logodev 
+    ? `https://www.google.com/s2/favicons?domain=${logodev}&sz=32`
+    : (url ? getLogoUrl(url) : null)
 
-  if (!fallbackLogo || error) {
-    // 3. Final Fallback: A simple letter avatar
+  if (googleFaviconUrl && !googleFaviconError) {
     return (
-      <div className={`${className} bg-zinc-100 flex items-center justify-center text-[10px] font-bold text-zinc-400`}>
-        {name[0].toUpperCase()}
-      </div>
+      <img
+        src={googleFaviconUrl}
+        alt={name}
+        className={className}
+        onError={() => {
+          console.error(`Failed to load Google Favicon for ${name}`)
+          setGoogleFaviconError(true)
+        }}
+      />
     )
   }
 
+  // 3. Final Fallback: A simple letter avatar
   return (
-    <img
-      src={fallbackLogo}
-      alt={name}
-      className={className}
-      onError={() => setError(true)}
-    />
+    <div className={`${className} bg-zinc-100 flex items-center justify-center text-[10px] font-bold text-zinc-400`}>
+      {name[0].toUpperCase()}
+    </div>
   )
 }
