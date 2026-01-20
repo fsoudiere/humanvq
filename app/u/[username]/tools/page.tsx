@@ -156,14 +156,14 @@ export default function ToolsPage() {
 
   return (
     <div className="min-h-screen">
-      <main className="mx-auto max-w-6xl px-6 py-16">
+      <main className="mx-auto max-w-6xl px-6 pt-8 pb-16">
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-4">
           <div className="flex items-center gap-3 mb-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
               <Bot className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
+            <h1 className="text-xl md:text-2xl font-normal text-zinc-900 dark:text-zinc-50">
               AI Toolstack
             </h1>
           </div>

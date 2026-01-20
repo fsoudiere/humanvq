@@ -11,6 +11,7 @@ interface AppLayoutProps {
 
 export default function AppLayout({ children }: AppLayoutProps) {
   const [username, setUsername] = useState<string | null>(null)
+  const [createPathLink, setCreatePathLink] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const pathname = usePathname()
 
@@ -29,9 +30,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
         
         if (profile?.username) {
           setUsername(profile.username)
+          setCreatePathLink(`/u/${profile.username}/create`)
         } else {
           // Fallback to user ID if no username
           setUsername(user.id)
+          setCreatePathLink(`/u/${user.id}/create`)
         }
       }
       setIsLoading(false)
@@ -49,8 +52,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <>
-      {shouldShowSidebar && <Sidebar username={username} />}
-      <div className={shouldShowSidebar ? "ml-16 transition-all duration-200" : ""}>
+      {shouldShowSidebar && username && createPathLink && (
+        <Sidebar username={username} createPathLink={createPathLink} />
+      )}
+      <div className={shouldShowSidebar ? "md:ml-16 transition-all duration-200" : ""}>
         {children}
       </div>
     </>

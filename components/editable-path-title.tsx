@@ -84,11 +84,11 @@ export function EditablePathTitle({ pathId, initialTitle, onUpdate }: EditablePa
           onBlur={handleSave}
           onKeyDown={handleKeyDown}
           disabled={isSaving}
-          className="flex-1 text-2xl font-normal bg-transparent border-b-2 border-blue-500 focus:outline-none focus:border-blue-600 dark:border-blue-400 dark:focus:border-blue-300 px-2 py-1 disabled:opacity-50"
+          className="flex-1 text-xl md:text-2xl font-normal bg-transparent border-b-2 border-blue-500 focus:outline-none focus:border-blue-600 dark:border-blue-400 dark:focus:border-blue-300 px-2 py-1 disabled:opacity-50"
           placeholder={isSaving ? "Saving..." : "Enter path title"}
         />
         {isSaving && (
-          <span className="text-sm text-zinc-500 dark:text-zinc-400">
+          <span className="text-base md:text-sm text-zinc-500 dark:text-zinc-400">
             Saving...
           </span>
         )}
@@ -98,7 +98,7 @@ export function EditablePathTitle({ pathId, initialTitle, onUpdate }: EditablePa
 
   return (
     <div className="flex items-center gap-3 group">
-      <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
+      <h1 className="text-xl md:text-2xl font-normal text-zinc-900 dark:text-zinc-50">
         {title || "Untitled Path"}
       </h1>
       <button

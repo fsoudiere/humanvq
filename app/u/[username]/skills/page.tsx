@@ -156,14 +156,14 @@ export default function SkillsPage() {
 
   return (
     <div className="min-h-screen">
-      <main className="mx-auto max-w-6xl px-6 py-16">
+      <main className="mx-auto max-w-6xl px-6 pt-8 pb-16">
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-4">
           <div className="flex items-center gap-3 mb-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
               <GraduationCap className="h-5 w-5 text-orange-600 dark:text-orange-400" />
             </div>
-            <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
+            <h1 className="text-xl md:text-2xl font-normal text-zinc-900 dark:text-zinc-50">
               Human Skills
             </h1>
           </div>

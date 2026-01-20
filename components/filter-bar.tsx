@@ -30,7 +30,7 @@ export function FilterBar({
     <div className="flex flex-wrap gap-4 mb-6">
       {/* Path Filter */}
       <div className="flex-1 min-w-[200px]">
-        <Label htmlFor="path-filter" className="text-xs text-zinc-500 mb-2 block">
+        <Label htmlFor="path-filter" className="text-sm md:text-xs text-zinc-500 mb-2 block">
           Filter by Moat
         </Label>
         <Select
@@ -54,7 +54,7 @@ export function FilterBar({
       {/* Status Filter - Only show if statuses are provided */}
       {statuses.length > 0 && (
         <div className="flex-1 min-w-[200px]">
-          <Label htmlFor="status-filter" className="text-xs text-zinc-500 mb-2 block">
+          <Label htmlFor="status-filter" className="text-sm md:text-xs text-zinc-500 mb-2 block">
             Filter by Status
           </Label>
           <Select

@@ -7,7 +7,6 @@ import { createClient } from "@/utils/supabase/client"
 import { updateProfile } from "@/actions/update-profile"
 import { deleteAccount } from "@/actions/delete-account"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
   Form,
@@ -183,26 +182,25 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen">
-      <main className="mx-auto max-w-2xl px-6 py-16">
+      <main className="mx-auto max-w-full px-6 pt-8 pb-16">
 
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
+        <div className="mb-4">
+          <h1 className="text-xl md:text-2xl font-normal text-zinc-900 dark:text-zinc-50">
             Settings
           </h1>
         </div>
 
-        {/* Profile Settings Card */}
-        <Card className="mb-8 border-zinc-200 dark:border-zinc-800">
-          <CardHeader>
-            <CardTitle>Profile Information</CardTitle>
-            <CardDescription>
+        {/* Profile Settings Form */}
+        <div className="mb-8">
+          <div className="mb-4">
+            <h2 className="text-base md:text-lg font-semibold text-zinc-900 dark:text-zinc-50">Profile Information</h2>
+            <p className="text-sm md:text-sm text-zinc-600 dark:text-zinc-400 mt-1">
               Update your name and username
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            </p>
+          </div>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 <FormField
                   control={form.control}
                   name="full_name"
@@ -246,7 +244,7 @@ export default function SettingsPage() {
                   render={({ field }) => (
                     <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                       <div className="space-y-0.5">
-                        <FormLabel className="text-base">
+                        <FormLabel className="text-sm md:text-base">
                           Organization Account
                         </FormLabel>
                         <div className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -308,21 +306,19 @@ export default function SettingsPage() {
                 </Button>
               </form>
             </Form>
-          </CardContent>
-        </Card>
+          </div>
 
-        {/* Danger Zone Card */}
-        <Card className="border-red-200 dark:border-red-800">
-          <CardHeader>
-            <CardTitle className="text-red-600 dark:text-red-400">
+        {/* Danger Zone */}
+        <div className="border-t border-red-200 dark:border-red-800 pt-8">
+          <div className="mb-4">
+            <h2 className="text-base md:text-lg font-semibold text-red-600 dark:text-red-400">
               Danger Zone
-            </CardTitle>
-            <CardDescription>
+            </h2>
+            <p className="text-sm md:text-sm text-zinc-600 dark:text-zinc-400 mt-1">
               Irreversible and destructive actions
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
+            </p>
+          </div>
+          <div className="space-y-4">
               <div>
                 <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 mb-1">
                   Delete Account
@@ -342,8 +338,7 @@ export default function SettingsPage() {
                 </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
       </main>
     </div>
   )

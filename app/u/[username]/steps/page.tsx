@@ -138,14 +138,14 @@ export default function StepsPage() {
 
   return (
     <div className="min-h-screen">
-      <main className="mx-auto max-w-6xl px-6 py-16">
+      <main className="mx-auto max-w-6xl px-6 pt-8 pb-16">
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-4">
           <div className="flex items-center gap-3 mb-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/30">
               <Footprints className="h-5 w-5 text-purple-600 dark:text-purple-400" />
             </div>
-            <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
+            <h1 className="text-xl md:text-2xl font-normal text-zinc-900 dark:text-zinc-50">
               Immediate Steps
             </h1>
           </div>

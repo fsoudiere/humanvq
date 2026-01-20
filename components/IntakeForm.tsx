@@ -423,19 +423,17 @@ export function IntakeForm({ onSuccess, pathId, initialData, showCard = true }: 
       
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
+        <h1 className="text-xl md:text-2xl font-normal text-zinc-900 dark:text-zinc-50">
           Initiate a Strategy Path
         </h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2">
+        <p className="text-sm md:text-sm text-zinc-600 dark:text-zinc-400 mt-2">
           Define the Focus Area for this path to calculate its specific HVQ Score and roadmap.
         </p>
       </div>
 
-      <Card className="w-full max-w-2xl border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <CardContent>
-          {formContent}
-        </CardContent>
-      </Card>
+      <div className="w-full">
+        {formContent}
+      </div>
     </>
   )
 }

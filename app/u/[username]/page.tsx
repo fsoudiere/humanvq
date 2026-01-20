@@ -372,27 +372,29 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen">
-      <main id="stack-capture" className="mx-auto max-w-6xl px-6 py-16">
+      <main id="stack-capture" className="mx-auto max-w-6xl px-6 pt-8 pb-16">
         {/* HEADER */}
-        <div className="mb-8">
+        <div className="mb-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
-              {displayName}'s Dashboard
+            <h1 className="hidden md:block text-2xl font-normal text-zinc-900 dark:text-zinc-50">
+              <span className="hidden md:inline">{displayName}'s </span>Dashboard
             </h1>
             {isOwner && (
-              <ShareButton
-                targetType="stack"
-                targetId={targetUserId}
-                isOwner={isOwner}
-                userName={
-                  (displayProfile?.is_organization && displayProfile?.organization_name)
-                    ? displayProfile.organization_name
-                    : displayProfile?.full_name || "User"
-                }
-                variant="ghost"
-                size="sm"
-                className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-              />
+              <div className="hidden md:block">
+                <ShareButton
+                  targetType="stack"
+                  targetId={targetUserId}
+                  isOwner={isOwner}
+                  userName={
+                    (displayProfile?.is_organization && displayProfile?.organization_name)
+                      ? displayProfile.organization_name
+                      : displayProfile?.full_name || "User"
+                  }
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                />
+              </div>
             )}
           </div>
         </div>
@@ -402,13 +404,13 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
         {/* HVQ Overall Score */}
         <Card className="p-3 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-xs text-blue-600 dark:text-blue-400">HVQ Overall Score</div>
+            <div className="text-sm md:text-xs text-blue-600 dark:text-blue-400">HVQ Overall Score</div>
             <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
               <LayoutDashboard className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </div>
           </div>
           <div className="flex items-center justify-between">
-            <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">{globalAverage}</div>
+            <div className="text-xl md:text-2xl font-bold text-blue-900 dark:text-blue-100">{globalAverage}</div>
             <div className="w-20 h-8">
               <svg width="100%" height="32" className="text-blue-600 dark:text-blue-400">
                 {Array.from({ length: 7 }).map((_, i) => {
@@ -434,13 +436,13 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
         {/* Active Paths */}
         <Card className="p-3">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">Active Paths</div>
+            <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Active Paths</div>
             <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
               <Target className="h-4 w-4 text-purple-600 dark:text-purple-400" />
             </div>
           </div>
           <div className="flex items-center justify-between">
-            <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{displayPaths.length}</div>
+            <div className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-50">{displayPaths.length}</div>
             <div className="w-20 h-8">
               <svg width="100%" height="32" className="text-purple-500">
                 {Array.from({ length: 7 }).map((_, i) => {
@@ -466,13 +468,13 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
         {/* Time Saved */}
         <Card className="p-3">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">Time Saved</div>
+            <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Time Saved</div>
             <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
               <Bot className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             </div>
           </div>
           <div className="flex items-center justify-between">
-            <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{timeSavedHours}h</div>
+            <div className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-50">{timeSavedHours}h</div>
             <div className="w-20 h-8">
               <svg width="100%" height="32" className="text-emerald-500">
                 {Array.from({ length: 7 }).map((_, i) => {
@@ -498,13 +500,13 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
         {/* Skills Gained */}
         <Card className="p-3">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">Skills Gained</div>
+            <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Skills Gained</div>
             <div className="w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
               <GraduationCap className="h-4 w-4 text-orange-600 dark:text-orange-400" />
             </div>
           </div>
           <div className="flex items-center justify-between">
-            <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{skillsGained}</div>
+            <div className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-50">{skillsGained}</div>
             <div className="w-20 h-8">
               <svg width="100%" height="32" className="text-orange-500">
                 {Array.from({ length: 7 }).map((_, i) => {
@@ -674,7 +676,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
                       <Bot className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                     </div>
-                    <h2 className="text-2xl font-normal text-zinc-900">AI Toolstack</h2>
+                    <h2 className="text-xl md:text-2xl font-normal text-zinc-900">AI Toolstack</h2>
                     <span className="text-xs bg-zinc-100 text-zinc-500 px-2 py-1 rounded-full font-normal">
                       {totalCount}
                     </span>
@@ -713,7 +715,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
                       <GraduationCap className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                     </div>
-                    <h2 className="text-2xl font-normal text-zinc-900">Human Skills</h2>
+                    <h2 className="text-xl md:text-2xl font-normal text-zinc-900">Human Skills</h2>
                     <span className="text-xs bg-zinc-100 text-zinc-500 px-2 py-1 rounded-full font-normal">
                       {totalCount}
                     </span>

@@ -219,7 +219,7 @@ export default function StackManager({
         <div className="relative inline-flex items-center">
           <button
             onClick={() => setShowMenu(!showMenu)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border cursor-pointer transition-colors ${statusInfo.color} hover:opacity-90`}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm md:text-xs font-medium border cursor-pointer transition-colors ${statusInfo.color} hover:opacity-90`}
           >
             <span>{statusInfo.label}</span>
             <ChevronDown className={`h-3 w-3 transition-transform ${showMenu ? 'rotate-180' : ''}`} />
@@ -252,9 +252,10 @@ export default function StackManager({
         <div className="relative">
           <button
             onClick={() => setShowMenu(!showMenu)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm md:text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
           >
-            <span>+ Add to Path</span>
+            <span className="hidden sm:inline">+ Add to Path</span>
+            <span className="sm:hidden">+</span>
             <ChevronDown className={`h-3 w-3 transition-transform ${showMenu ? 'rotate-180' : ''}`} />
           </button>
 

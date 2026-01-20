@@ -25,9 +25,9 @@ export default function CourseGroup({ title, items, isOwner, username, icon, col
   return (
     <div>
       {title && (
-        <h3 className="text-lg font-normal mb-4 flex items-center gap-2 text-zinc-800">
+        <h3 className="text-base md:text-lg font-normal mb-4 flex items-center gap-2 text-zinc-800">
           {icon} {title}
-          <span className="text-xs bg-white border border-zinc-200 px-2 py-0.5 rounded-full text-zinc-500 font-normal ml-auto">
+          <span className="text-sm md:text-xs bg-white border border-zinc-200 px-2 py-0.5 rounded-full text-zinc-500 font-normal ml-auto">
             {items.length} Items
           </span>
         </h3>
@@ -48,17 +48,17 @@ export default function CourseGroup({ title, items, isOwner, username, icon, col
               </div>
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm text-zinc-900">{item.resource.name}</span>
+                  <span className="font-semibold text-base md:text-sm text-zinc-900">{item.resource.name}</span>
                 </div>
               </div>
 
-              <p className="text-xs text-zinc-500 mb-3">
+              <p className="text-sm md:text-xs text-zinc-500 mb-3">
                 {item.resource.description}
               </p>
 
               <div className="mt-4 flex items-center gap-2 flex-wrap">
                 {statusInfo && (
-                  <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border ${statusInfo.color}`}>
+                  <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm md:text-xs font-medium border ${statusInfo.color}`}>
                     {statusInfo.label}
                   </span>
                 )}
@@ -67,7 +67,7 @@ export default function CourseGroup({ title, items, isOwner, username, icon, col
                     href={item.resource.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm md:text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
                   >
                     View Skill
                   </a>

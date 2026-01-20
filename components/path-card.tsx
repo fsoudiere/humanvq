@@ -86,16 +86,16 @@ export function PathCard({
             <div className="mb-4">
               <div className="flex items-baseline gap-3">
                 {score !== null ? (
-                  <span className="text-4xl font-semibold text-zinc-900 dark:text-zinc-50">
+                  <span className="text-3xl md:text-4xl font-semibold text-zinc-900 dark:text-zinc-50">
                     {displayScore}
                   </span>
                 ) : (
-                  <span className="text-4xl font-semibold text-zinc-300 dark:text-zinc-700">
+                  <span className="text-3xl md:text-4xl font-semibold text-zinc-300 dark:text-zinc-700">
                     100
                   </span>
                 )}
                 {hasScore && dailyChangePercent !== null && (
-                  <div className={`flex items-center gap-1 text-sm font-medium ${dailyChangePercent > 0
+                  <div className={`flex items-center gap-1 text-base md:text-sm font-medium ${dailyChangePercent > 0
                     ? 'text-emerald-600 dark:text-emerald-400'
                     : dailyChangePercent < 0
                       ? 'text-red-600 dark:text-red-400'
@@ -115,19 +115,19 @@ export function PathCard({
             </div>
 
             {/* Path Title */}
-            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-3 line-clamp-2 pr-8">
+            <h3 className="text-base md:text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-3 line-clamp-2 pr-8">
               {displayTitle}
             </h3>
 
             {/* Path Details - Goal and Role only */}
             <div className="flex-1 space-y-2 mb-2">
               {mainGoal && (
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                <p className="text-sm md:text-sm text-zinc-600 dark:text-zinc-400">
                   {mainGoal}
                 </p>
               )}
               {role && (
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                <p className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">
                   {role}
                 </p>
               )}
@@ -135,7 +135,7 @@ export function PathCard({
 
             {/* Last Updated Time */}
             {formattedUpdated && (
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-auto">
+              <p className="text-sm md:text-xs text-zinc-400 dark:text-zinc-500 mt-auto">
                 Updated {formattedUpdated}
               </p>
             )}

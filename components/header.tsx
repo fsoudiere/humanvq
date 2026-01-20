@@ -6,6 +6,7 @@ import LogoutButton from "./logout-button"
 import { getUserDestination } from "@/actions/profiles"
 import PathSelector from "./path-selector"
 import { Input } from "@/components/ui/input"
+import MobileHeader from "./mobile-header"
 
 export default async function Header() {
   const supabase = await createClient()
@@ -61,68 +62,81 @@ export default async function Header() {
   const homeDestination = await getUserDestination(user.id)
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-zinc-200 bg-white/80 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80">
-      <div className="mx-auto flex max-w-full items-center justify-between px-4 py-3 gap-4">
-        {/* Left: Breadcrumb Navigation */}
-        <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400 min-w-0 flex-1">
-          <Link href={homeDestination || "/"} className="font-medium text-black dark:text-zinc-50 hover:underline shrink-0">
-            HumanVQ
-          </Link>
-          {profile && (
-            <>
-              <ChevronRight className="h-4 w-4 shrink-0" />
-              <Link href={profileLink} className="truncate hover:underline shrink-0">
-                {breadcrumbName}
-              </Link>
-              {profile.username && (
-                <>
-                  <ChevronRight className="h-4 w-4 shrink-0" />
-                  <PathSelector username={profile.username} />
-                </>
-              )}
-            </>
-          )}
-        </div>
-        
-        {/* Right: Search, New, Settings, Logout */}
-        <div className="flex items-center gap-3 shrink-0">
-          {/* Search/Chat Input */}
-          <div className="relative hidden sm:block">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-            <Input
-              type="search"
-              placeholder="Search or chat..."
-              className="pl-9 w-[200px] h-9 text-sm"
-              disabled
-            />
+    <>
+      {/* Mobile Header */}
+      <MobileHeader 
+        username={profile?.username || user.id}
+        createPathLink={createPathLink}
+        breadcrumbName={breadcrumbName}
+      />
+      
+      {/* Desktop Header */}
+      <header className="hidden md:block sticky top-0 z-50 w-full border-b border-zinc-200 bg-white/80 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/80">
+        <div className="mx-auto flex max-w-full items-center justify-between px-4 py-3 gap-4">
+          {/* Left: Breadcrumb Navigation */}
+          <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400 min-w-0 flex-1">
+            <Link href={homeDestination || "/"} className="font-medium text-black dark:text-zinc-50 hover:underline shrink-0">
+              HumanVQ
+            </Link>
+            {profile && (
+              <>
+                <ChevronRight className="h-4 w-4 shrink-0" />
+                <Link href={profileLink} className="truncate hover:underline shrink-0">
+                  {breadcrumbName}
+                </Link>
+                {profile.username && (
+                  <>
+                    <ChevronRight className="h-4 w-4 shrink-0" />
+                    <PathSelector username={profile.username} />
+                  </>
+                )}
+              </>
+            )}
           </div>
           
-          {/* New Path Button */}
-          <Link href={createPathLink}>
-            <Button 
-              size="sm" 
-              className="rounded-full gap-1.5 bg-black hover:bg-gray-800 dark:bg-black dark:hover:bg-gray-800 text-white"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">New</span>
-            </Button>
-          </Link>
-          
-          {/* Settings Icon */}
-          <Link href="/settings">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="h-9 w-9 p-0 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
-          </Link>
-          
-          {/* Logout Icon */}
-          <LogoutButton />
+          {/* Right: Search, New, Settings, Logout */}
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Search/Chat Input */}
+            <div className="relative hidden lg:block">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+              <Input
+                type="search"
+                placeholder="Search or chat..."
+                className="pl-9 w-[200px] h-9 text-sm"
+                disabled
+              />
+            </div>
+            
+            {/* New Path Button */}
+            <Link href={createPathLink}>
+              <Button 
+                size="sm" 
+                variant="ghost"
+                className="gap-1.5"
+              >
+                <div className="h-5 w-5 rounded-full bg-black dark:bg-black flex items-center justify-center">
+                  <Plus className="h-4 w-4 text-white" />
+                </div>
+                <span className="hidden sm:inline">New</span>
+              </Button>
+            </Link>
+            
+            {/* Settings Icon */}
+            <Link href="/settings">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-9 w-9 p-0 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </Link>
+            
+            {/* Logout Icon */}
+            <LogoutButton />
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+    </>
   )
 }

@@ -322,12 +322,12 @@ export function ShareButton({
         {isPublic ? (
           <>
             <Globe className="h-4 w-4" />
-            Public
+            <span className="hidden sm:inline">Public</span>
           </>
         ) : (
           <>
             <Lock className="h-4 w-4" />
-            Private
+            <span className="hidden sm:inline">Private</span>
           </>
         )}
       </Button>
@@ -352,7 +352,7 @@ export function ShareButton({
           ) : (
             <Share2 className="h-4 w-4" />
           )}
-          {!isIconOnly && "Share"}
+          {!isIconOnly && <span className="hidden sm:inline">Share</span>}
         </Button>
       </DialogTrigger>
       <DialogContent>
@@ -384,12 +384,13 @@ export function ShareButton({
                   className="flex-1 gap-2"
                 >
                   <Globe className="h-4 w-4" />
-                  {isUpdating ? "Publishing..." : "Confirm & Publish"}
+                  <span className="hidden sm:inline">{isUpdating ? "Publishing..." : "Confirm & Publish"}</span>
                 </Button>
                 <Button
                   onClick={() => setDialogOpen(false)}
                   variant="outline"
                   disabled={isUpdating}
+                  className="hidden sm:flex"
                 >
                   Cancel
                 </Button>
@@ -500,7 +501,7 @@ export function ShareButton({
                     disabled={isUpdating}
                   >
                     <Lock className="h-4 w-4" />
-                    Make Private
+                    <span className="hidden sm:inline">Make Private</span>
                   </Button>
                 </div>
               )}

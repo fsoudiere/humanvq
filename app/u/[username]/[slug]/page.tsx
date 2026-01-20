@@ -145,6 +145,15 @@ export default function UnifiedPathPage() {
 
   // Edit Strategy Dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+
+  // Listen for mobile header edit button click
+  useEffect(() => {
+    const handleOpenEditDialog = () => {
+      setEditDialogOpen(true)
+    }
+    window.addEventListener('openEditDialog', handleOpenEditDialog)
+    return () => window.removeEventListener('openEditDialog', handleOpenEditDialog)
+  }, [])
   
   // New step input state
   const [newStepText, setNewStepText] = useState("")
@@ -852,12 +861,12 @@ export default function UnifiedPathPage() {
 
   return (
     <div className="min-h-screen">
-      <main className="mx-auto max-w-6xl px-6 py-16">
+      <main className="mx-auto max-w-6xl px-6 pt-8 pb-16">
         
         {/* Header Section */}
-        <div className="mb-8">
+        <div className="mb-4">
           <div className="flex items-center justify-between mb-6">
-            <div className="flex-1">
+            <div className="flex-1 hidden md:block">
               {isOwner ? (
                 <EditablePathTitle 
                   pathId={pathId!}
@@ -865,7 +874,7 @@ export default function UnifiedPathPage() {
                   onUpdate={(newTitle) => setPathTitle(newTitle)}
                 />
               ) : (
-                <h1 className="text-2xl font-normal text-zinc-900 dark:text-zinc-50">
+                <h1 className="text-xl md:text-2xl font-normal text-zinc-900 dark:text-zinc-50">
                   {pathTitle}
                 </h1>
               )}
@@ -884,9 +893,9 @@ export default function UnifiedPathPage() {
               )}
             </div>
 
-            {/* Right: Action Buttons (only for owners) */}
+            {/* Right: Action Buttons (only for owners) - Hidden on mobile */}
             {isOwner && pathId && (
-              <div className="flex gap-2">
+              <div className="hidden md:flex gap-2">
                 <ShareButton 
                   targetType="path"
                   targetId={pathId}
@@ -903,7 +912,7 @@ export default function UnifiedPathPage() {
                   <DialogTrigger asChild>
                     <Button variant="ghost" size="sm" className="gap-2 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
                       <Settings className="h-4 w-4" />
-                      Edit Path
+                      <span className="hidden sm:inline">Edit Path</span>
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -938,13 +947,13 @@ export default function UnifiedPathPage() {
             {/* HVQ Score */}
             <Card className="p-3 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-xs text-blue-600 dark:text-blue-400">HVQ Score</div>
+                <div className="text-sm md:text-xs text-blue-600 dark:text-blue-400">HVQ Score</div>
                 <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
                   <LayoutDashboard className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">{currentHvqScore ?? 100}</div>
+                <div className="text-xl md:text-2xl font-bold text-blue-900 dark:text-blue-100">{currentHvqScore ?? 100}</div>
                 <div className="w-20 h-8">
                   <svg width="100%" height="32" className="text-blue-600 dark:text-blue-400">
                     {Array.from({ length: 7 }).map((_, i) => {
@@ -970,13 +979,13 @@ export default function UnifiedPathPage() {
             {/* Automated Tasks */}
             <Card className="p-3">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">Automated Tasks</div>
+                <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Automated Tasks</div>
                 <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
                   <Bot className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{automatedTasksCompleted}</div>
+                <div className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-50">{automatedTasksCompleted}</div>
                 <div className="w-20 h-8">
                   <svg width="100%" height="32" className="text-emerald-500">
                     {Array.from({ length: 7 }).map((_, i) => {
@@ -1002,13 +1011,13 @@ export default function UnifiedPathPage() {
             {/* Steps Completed */}
             <Card className="p-3">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">Steps Completed</div>
+                <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Steps Completed</div>
                 <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
                   <Footprints className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{stepsCompleted}</div>
+                <div className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-50">{stepsCompleted}</div>
                 <div className="w-20 h-8">
                   <svg width="100%" height="32" className="text-purple-500">
                     {Array.from({ length: 7 }).map((_, i) => {
@@ -1034,13 +1043,13 @@ export default function UnifiedPathPage() {
             {/* Tools Added */}
             <Card className="p-3">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-xs text-zinc-500 dark:text-zinc-400">Tools Added</div>
+                <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Tools Added</div>
                 <div className="w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
                   <Wrench className="h-4 w-4 text-orange-600 dark:text-orange-400" />
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{toolsAdded}</div>
+                <div className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-50">{toolsAdded}</div>
                 <div className="w-20 h-8">
                   <svg width="100%" height="32" className="text-orange-500">
                     {Array.from({ length: 7 }).map((_, i) => {
@@ -1067,7 +1076,7 @@ export default function UnifiedPathPage() {
 
         {/* Efficiency Audit */}
         <section className="mb-20">
-          <h2 className="mb-8 text-2xl font-normal text-black dark:text-zinc-50">
+          <h2 className="mb-8 text-xl md:text-2xl font-normal text-black dark:text-zinc-50">
             Efficiency Audit
           </h2>
           <div className="grid gap-6 md:grid-cols-2">
@@ -1160,7 +1169,7 @@ export default function UnifiedPathPage() {
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
                     <Bot className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                   </div>
-                  <h2 className="text-2xl font-normal text-black dark:text-zinc-50">
+                  <h2 className="text-xl md:text-2xl font-normal text-black dark:text-zinc-50">
                     AI Toolstack
                   </h2>
                 </div>
@@ -1292,11 +1301,11 @@ export default function UnifiedPathPage() {
                           />
                         </div>
                         <div className="flex items-center justify-between gap-2">
-                          <CardTitle className="text-sm font-semibold">{tool.title}</CardTitle>
+                          <CardTitle className="text-base md:text-sm font-semibold">{tool.title}</CardTitle>
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <p className="mb-2 text-xs text-zinc-500">
+                        <p className="mb-2 text-sm md:text-xs text-zinc-500">
                           {tool.description}
                         </p>
                         {tool.capabilities && tool.capabilities.length > 0 && (
@@ -1322,7 +1331,7 @@ export default function UnifiedPathPage() {
                                 href={tool.url} 
                                 target="_blank" 
                                 rel="noopener noreferrer" 
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm md:text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
                               >
                                 View Tool
                               </a>
@@ -1345,7 +1354,7 @@ export default function UnifiedPathPage() {
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
                 <GraduationCap className="h-5 w-5 text-orange-600 dark:text-orange-400" />
               </div>
-              <h2 className="text-2xl font-normal text-black dark:text-zinc-50">
+              <h2 className="text-xl md:text-2xl font-normal text-black dark:text-zinc-50">
                 Human Skills
               </h2>
             </div>
@@ -1435,10 +1444,10 @@ export default function UnifiedPathPage() {
                           className="w-16 h-16 rounded-lg object-contain bg-white p-1"
                         />
                       </div>
-                      <CardTitle className="text-sm font-semibold">{course.title}</CardTitle>
+                      <CardTitle className="text-base md:text-sm font-semibold">{course.title}</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="mb-3 text-xs text-zinc-500">
+                      <p className="mb-3 text-sm md:text-xs text-zinc-500">
                         {course.description}
                       </p>
                       {isOwner && courseId && (
@@ -1456,7 +1465,7 @@ export default function UnifiedPathPage() {
                               href={course.url} 
                               target="_blank" 
                               rel="noopener noreferrer" 
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm md:text-xs font-medium border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors"
                             >
                               View Course
                             </a>
@@ -1478,32 +1487,39 @@ export default function UnifiedPathPage() {
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/30">
                 <Footprints className="h-5 w-5 text-purple-600 dark:text-purple-400" />
               </div>
-              <h2 className="text-2xl font-normal text-black dark:text-zinc-50">
+              <h2 className="text-xl md:text-2xl font-normal text-black dark:text-zinc-50">
                 Next Steps
               </h2>
             </div>
             <div className="border border-zinc-200 dark:border-zinc-800 rounded-md overflow-hidden">
-              <table className="w-full">
+              <table className="w-full table-fixed">
+                <colgroup>
+                  {isOwner && <col className="w-[10%] md:w-[8%]" />}
+                  <col className="hidden md:table-column w-[8%]" />
+                  <col className="w-[90%] md:w-[75%]" />
+                  {isOwner && <col className="w-[9%]" />}
+                </colgroup>
                 <tbody className="bg-white dark:bg-zinc-950 divide-y divide-zinc-200 dark:divide-zinc-800">
                   {immediateSteps.length > 0 ? (
                     immediateSteps.map((step, i) => (
-                      <tr key={i} className={`${step.is_completed ? 'opacity-60' : ''} ${isOwner ? 'hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer group' : ''}`} onClick={() => isOwner && handleToggleStep(i)}>
+                      <tr key={i} className={`relative ${step.is_completed ? 'opacity-60' : ''} ${isOwner ? 'hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer group' : ''}`} onClick={() => isOwner && handleToggleStep(i)}>
                         {isOwner && (
-                          <td className="px-4 py-3">
+                          <td className="pl-3 pr-1 py-3">
                             <Checkbox
                               checked={step.is_completed}
                               onCheckedChange={() => handleToggleStep(i)}
                               onClick={(e) => e.stopPropagation()}
+                              className="ml-0"
                             />
                           </td>
                         )}
-                        <td className="px-4 py-3">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-100 text-sm font-bold text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                        <td className="hidden md:table-cell px-1 py-3 relative">
+                          <div className="absolute left-1 top-1/2 -translate-y-1/2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-100 text-sm md:text-xs font-bold text-purple-700 dark:bg-purple-900 dark:text-purple-300">
                             {i + 1}
                           </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <p className={`${
+                        <td className="px-3 py-3 md:pl-6">
+                          <p className={`text-base md:text-sm ${
                             step.is_completed 
                               ? "line-through text-zinc-500 dark:text-zinc-500" 
                               : "text-zinc-700 dark:text-zinc-300"
@@ -1512,7 +1528,7 @@ export default function UnifiedPathPage() {
                           </p>
                         </td>
                         {isOwner && (
-                          <td className="px-4 py-3">
+                          <td className="px-2 py-3">
                             <button
                               onClick={(e) => {
                                 e.preventDefault()
@@ -1530,29 +1546,30 @@ export default function UnifiedPathPage() {
                     ))
                   ) : (
                     <tr>
-                      {isOwner && <td className="px-4 py-3"></td>}
-                      <td className="px-4 py-3" colSpan={isOwner ? 2 : 2}>
-                        <p className="text-sm text-zinc-500 dark:text-zinc-400">No steps yet</p>
+                      {isOwner && <td className="pl-3 pr-1 py-3"></td>}
+                      <td className="hidden md:table-cell px-1 py-3"></td>
+                      <td className="px-3 py-3 md:pl-6">
+                        <p className="text-base md:text-sm text-zinc-500 dark:text-zinc-400">No steps yet</p>
                       </td>
-                      {isOwner && <td className="px-4 py-3"></td>}
+                      {isOwner && <td className="px-2 py-3"></td>}
                     </tr>
                   )}
                   {isOwner && (
                     <tr className="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800">
-                      {isOwner && <td className="px-4 py-3"></td>}
-                      <td className="px-4 py-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-800 text-sm font-bold text-zinc-500 dark:text-zinc-400">
+                      {isOwner && <td className="pl-3 pr-1 py-3"></td>}
+                      <td className="hidden md:table-cell px-1 py-3 relative">
+                        <div className="absolute left-1 top-1/2 -translate-y-1/2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-800 text-sm md:text-xs font-bold text-zinc-500 dark:text-zinc-400">
                           +
                         </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <form onSubmit={(e) => { e.preventDefault(); handleAddStep(); }} className="flex items-center gap-2">
+                      <td className="px-3 py-3 md:pl-6">
+                        <form onSubmit={(e) => { e.preventDefault(); handleAddStep(); }} className="w-full">
                           <Input
                             type="text"
                             value={newStepText}
                             onChange={(e) => setNewStepText(e.target.value)}
                             placeholder="Add a new step..."
-                            className="flex-1"
+                            className="w-full"
                             onClick={(e) => e.stopPropagation()}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
@@ -1563,7 +1580,7 @@ export default function UnifiedPathPage() {
                           />
                         </form>
                       </td>
-                      {isOwner && <td className="px-4 py-3"></td>}
+                      {isOwner && <td className="px-2 py-3"></td>}
                     </tr>
                   )}
                 </tbody>
