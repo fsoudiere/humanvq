@@ -5,6 +5,7 @@ import { Globe, Lock, ArrowUp, ArrowDown } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { ShareButton } from "@/components/share-button"
 import { DeletePathButton } from "@/components/delete-path-button"
+import { ClonePathButton } from "@/components/clone-path-button"
 
 interface PathCardProps {
   path: any
@@ -22,6 +23,7 @@ interface PathCardProps {
   formattedUpdated: string | null
   mainGoal: string | null
   role: string | null
+  username?: string
 }
 
 export function PathCard({
@@ -38,6 +40,7 @@ export function PathCard({
   formattedUpdated,
   mainGoal,
   role,
+  username,
 }: PathCardProps) {
   return (
     <Card className="h-full transition-shadow cursor-pointer relative border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700 group">
@@ -52,6 +55,14 @@ export function PathCard({
                 e.stopPropagation()
               }}
             >
+              <div onClick={(e) => e.stopPropagation()}>
+                <ClonePathButton
+                  pathId={path.id}
+                  username={username}
+                  variant="ghost"
+                  size="icon"
+                />
+              </div>
               <div onClick={(e) => e.stopPropagation()}>
                 <ShareButton
                   targetType="path"

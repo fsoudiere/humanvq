@@ -633,6 +633,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                     formattedUpdated={formattedUpdated}
                     mainGoal={path.main_goal}
                     role={path.role}
+                    username={displayUsername}
                   />
                 )
               })}

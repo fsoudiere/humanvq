@@ -17,8 +17,19 @@ import { DeletePathButton } from "@/components/delete-path-button"
 import { ShareButton } from "@/components/share-button"
 import { RemoveFromPathButton } from "@/components/remove-from-path-button"
 import AddToolSearch from "@/components/add-tool-search"
+import { ReplacementRiskGauge } from "@/components/replacement-risk-gauge"
+import { KnowledgeDecayBanner } from "@/components/knowledge-decay-banner"
 import Link from "next/link"
-import { calculateHVQScore } from "@/lib/hvq-logic"
+import {
+  calculateHVQScore,
+  calculateVulnerability,
+  GOAL_PILLAR_MAP,
+  HVQ_DECAY_RATE,
+  VULNERABILITY_HIGH_RISK_THRESHOLD,
+  DELEGATION_BONUS_PER_TASK,
+  DELEGATION_BONUS_PER_TASK_HIGH_RISK,
+  type HumanPillars,
+} from "@/lib/hvq-logic"
 // StackManager now handles all resource management via updateResourceStatus
 
 // Define the shape of a delegate task item
@@ -44,6 +55,7 @@ interface ResourceItem {
   difficulty_level?: number
   hvq_score_machine?: number
   hvq_score_human?: number
+  hvq_primary_pillar?: string
 }
 
 interface UpgradePathData {
@@ -55,9 +67,35 @@ interface UpgradePathData {
   // They are stored in pathResourcesList state, not in this interface
   immediate_steps?: ImmediateStepItem[]
   current_hvq_score?: number
+  updated_at?: string | null
 }
 
 type AppState = "loading" | "analyzing" | "results" | "error"
+
+/** Default Human Pillars when path pillars are not yet available; yields vulnerability 0.5. */
+const DEFAULT_PILLARS: HumanPillars = { liability: 0.5, context: 0.5, edgeCase: 0.5, connection: 0.5 }
+
+function buildPillars(p: {
+  pillar_liability?: number | null
+  pillar_context?: number | null
+  pillar_edge_case?: number | null
+  pillar_connection?: number | null
+}): HumanPillars | null {
+  if (
+    p.pillar_liability != null &&
+    p.pillar_context != null &&
+    p.pillar_edge_case != null &&
+    p.pillar_connection != null
+  ) {
+    return {
+      liability: p.pillar_liability,
+      context: p.pillar_context,
+      edgeCase: p.pillar_edge_case,
+      connection: p.pillar_connection,
+    }
+  }
+  return null
+}
 
 // Animated score badge component
 function ScoreBadge({ points }: { points: number }) {
@@ -113,16 +151,22 @@ export default function UnifiedPathPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [pathId, setPathId] = useState<string | null>(null)
   
-  // Strategy data from upgrade_paths
+  // Strategy data from upgrade_paths (primary_pillar from AI hvq_analysis when available)
   const [strategyData, setStrategyData] = useState<{
     role: string | null
     main_goal: string | null
     context: string | null
+    primary_pillar: string | null
   }>({
     role: null,
     main_goal: null,
-    context: null
+    context: null,
+    primary_pillar: null
   })
+
+  // Human Pillars from upgrade_paths (pillar_liability, pillar_context, pillar_edge_case, pillar_connection)
+  // Set by n8n AI audit; used by calculateVulnerability. Null until AI provides them.
+  const [pathPillars, setPathPillars] = useState<HumanPillars | null>(null)
 
   // Path metadata
   const [pathTitle, setPathTitle] = useState<string>("")
@@ -241,7 +285,8 @@ export default function UnifiedPathPage() {
               url,
               logodev,
               hvq_score_machine,
-              hvq_score_human
+              hvq_score_human,
+              hvq_primary_pillar
             )
           )
         `)
@@ -273,17 +318,18 @@ export default function UnifiedPathPage() {
             path_resources (
               status,
               impact_weight,
-              resources (
-                id,
-                name,
-                type,
-                description,
-                url,
-                logodev,
-                hvq_score_machine,
-                hvq_score_human
-              )
+            resources (
+              id,
+              name,
+              type,
+              description,
+              url,
+              logodev,
+              hvq_score_machine,
+              hvq_score_human,
+              hvq_primary_pillar
             )
+          )
           `)
           .eq("id", slug)
           .eq("user_id", profile.user_id)
@@ -338,26 +384,23 @@ export default function UnifiedPathPage() {
       setIsOwner(ownerCheck || false)
 
       // Process path_resources: filter out removed and separate by type
+      // Hoist so efficiency_audit block can pass them into calculateHVQScore
+      let pathResourcesMap: Record<string, string> = {}
+      let pathResourceWeightsMap: Record<string, number> = {}
+      let pathResourcesListBuilt: { ai_tools: ResourceItem[]; human_courses: ResourceItem[] } = { ai_tools: [], human_courses: [] }
+
       if (path.path_resources && Array.isArray(path.path_resources)) {
-        // UI Filter: Only render items where status !== 'removed'
         const visiblePathResources = (path.path_resources || []).filter(
           (pr: any) => pr.status !== 'removed'
         )
-
-        // Build status map, weight map, and separate by type
-        const pathResourcesMap: Record<string, string> = {}
-        const pathResourceWeightsMap: Record<string, number> = {}
         const aiTools: ResourceItem[] = []
         const humanCourses: ResourceItem[] = []
 
         visiblePathResources.forEach((pr: any) => {
-          // Access resources from the nested structure
           const resource = pr.resources
           if (resource && resource.id) {
             pathResourcesMap[resource.id] = pr.status
-            // Store impact_weight from path_resources table
             pathResourceWeightsMap[resource.id] = pr.impact_weight || 0
-
             const resourceItem: ResourceItem = {
               id: resource.id,
               title: resource.name,
@@ -366,23 +409,17 @@ export default function UnifiedPathPage() {
               logodev: resource.logodev,
               hvq_score_machine: resource.hvq_score_machine,
               hvq_score_human: resource.hvq_score_human,
+              hvq_primary_pillar: resource.hvq_primary_pillar,
             }
-
-            // Logic Separation: Split by type
-            // Tools: item.resources.type === 'ai_tool'
-            if (resource.type === "ai_tool") {
-              aiTools.push(resourceItem)
-            }
-            // Courses: item.resources.type === 'human_course'
-            else if (resource.type === "human_course") {
-              humanCourses.push(resourceItem)
-            }
+            if (resource.type === "ai_tool") aiTools.push(resourceItem)
+            else if (resource.type === "human_course") humanCourses.push(resourceItem)
           }
         })
 
+        pathResourcesListBuilt = { ai_tools: aiTools, human_courses: humanCourses }
         setPathResources(pathResourcesMap)
         setPathResourceWeights(pathResourceWeightsMap)
-        setPathResourcesList({ ai_tools: aiTools, human_courses: humanCourses })
+        setPathResourcesList(pathResourcesListBuilt)
       }
 
       // Note: path_resources is now the single source of truth
@@ -396,12 +433,14 @@ export default function UnifiedPathPage() {
         return
       }
 
-      // Store strategy data
+      // Store strategy data and Human Pillars (from AI hvq_analysis via n8n)
       setStrategyData({
         role: path.role || null,
         main_goal: path.main_goal || null,
-        context: path.context || null
+        context: path.context || null,
+        primary_pillar: path.primary_pillar || null
       })
+      setPathPillars(buildPillars(path))
 
       const pathTitleValue = path.path_title || path.main_goal || "Untitled Path"
       setPathTitle(pathTitleValue)
@@ -459,7 +498,8 @@ export default function UnifiedPathPage() {
           const pathData = {
             efficiency_audit: efficiency,
             immediate_steps: immediateSteps,
-            current_hvq_score: path.current_hvq_score || null
+            current_hvq_score: path.current_hvq_score || null,
+            updated_at: path.updated_at ?? null
           }
 
           console.log("🔍 [Path Page] Path data prepared:", {
@@ -468,14 +508,16 @@ export default function UnifiedPathPage() {
             currentHvqScore: pathData.current_hvq_score
           })
 
-          // Use current_hvq_score from database (no calculation needed - score is persisted)
-          // Fallback to calculated score only if current_hvq_score is not available
-          const hvqScore = path.current_hvq_score ?? calculateHVQScore(pathData, pathResourcesList, pathResourceWeights)
+          // Always use calculated score for UI; persist it in upgradeData for decay comparison and future saves.
+          const vulnerability = calculateVulnerability(path.role || "", buildPillars(path) ?? DEFAULT_PILLARS)
+          const primaryPillar = path.primary_pillar || GOAL_PILLAR_MAP[path.role || ""]
+          const hvqScore = calculateHVQScore(pathData, pathResourcesListBuilt, pathResourceWeightsMap, vulnerability, pathResourcesMap, primaryPillar, path.updated_at)
 
           setUpgradeData({
             ...pathData,
             current_hvq_score: hvqScore
           })
+          setCurrentHvqScore(hvqScore)
           
           console.log("✅ [Path Page] Setting state to 'results'")
           setState("results")
@@ -540,7 +582,8 @@ export default function UnifiedPathPage() {
               url,
               logodev,
               hvq_score_machine,
-              hvq_score_human
+              hvq_score_human,
+              hvq_primary_pillar
             )
           )
         `)
@@ -549,6 +592,9 @@ export default function UnifiedPathPage() {
 
       if (!error && upgradePath && upgradePath.efficiency_audit) {
         try {
+          setPathPillars(buildPillars(upgradePath))
+          setStrategyData((prev) => ({ ...prev, primary_pillar: upgradePath.primary_pillar || prev.primary_pillar || null }))
+
           const efficiency = typeof upgradePath.efficiency_audit === 'string' 
             ? JSON.parse(upgradePath.efficiency_audit) 
             : upgradePath.efficiency_audit
@@ -557,41 +603,23 @@ export default function UnifiedPathPage() {
             ? JSON.parse(upgradePath.immediate_steps)
             : upgradePath.immediate_steps
 
-          const pathData = {
-            efficiency_audit: efficiency,
-            immediate_steps: immediateSteps,
-            current_hvq_score: upgradePath.current_hvq_score ?? null
-          }
+          let pollPathResourcesMap: Record<string, string> = {}
+          let pollPathResourceWeightsMap: Record<string, number> = {}
+          let pollPathResourcesListBuilt: { ai_tools: ResourceItem[]; human_courses: ResourceItem[] } = { ai_tools: [], human_courses: [] }
 
-          // Use current_hvq_score from database (no calculation needed - score is persisted)
-          // Fallback to calculated score only if current_hvq_score is not available
-          const hvqScore = upgradePath.current_hvq_score ?? calculateHVQScore(pathData, pathResourcesList, pathResourceWeights)
-
-          setUpgradeData({
-            ...pathData,
-            current_hvq_score: hvqScore
-          })
-          
-          // Process path_resources: filter out removed and separate by type
+          // Process path_resources first so we have status/weights for calculateHVQScore
           if (upgradePath.path_resources && Array.isArray(upgradePath.path_resources)) {
-            // UI Filter: Only render items where status !== 'removed'
             const visiblePathResources = (upgradePath.path_resources || []).filter(
               (pr: any) => pr.status !== 'removed'
             )
-
-            const pathResourcesMap: Record<string, string> = {}
-            const pathResourceWeightsMap: Record<string, number> = {}
             const aiTools: ResourceItem[] = []
             const humanCourses: ResourceItem[] = []
 
             visiblePathResources.forEach((pr: any) => {
-              // Access resources from the nested structure
               const resource = pr.resources
               if (resource && resource.id) {
-                pathResourcesMap[resource.id] = pr.status
-                // Store impact_weight from path_resources table
-                pathResourceWeightsMap[resource.id] = pr.impact_weight || 0
-
+                pollPathResourcesMap[resource.id] = pr.status
+                pollPathResourceWeightsMap[resource.id] = pr.impact_weight || 0
                 const resourceItem: ResourceItem = {
                   id: resource.id,
                   title: resource.name,
@@ -600,27 +628,35 @@ export default function UnifiedPathPage() {
                   logodev: resource.logodev,
                   hvq_score_machine: resource.hvq_score_machine,
                   hvq_score_human: resource.hvq_score_human,
+                  hvq_primary_pillar: resource.hvq_primary_pillar,
                 }
-
-                // Logic Separation: Split by type
-                // Tools: item.resources.type === 'ai_tool'
-                if (resource.type === "ai_tool") {
-                  aiTools.push(resourceItem)
-                }
-                // Courses: item.resources.type === 'human_course'
-                else if (resource.type === "human_course") {
-                  humanCourses.push(resourceItem)
-                }
+                if (resource.type === "ai_tool") aiTools.push(resourceItem)
+                else if (resource.type === "human_course") humanCourses.push(resourceItem)
               }
             })
-
-            setPathResources(pathResourcesMap)
-            setPathResourceWeights(pathResourceWeightsMap)
-            setPathResourcesList({ ai_tools: aiTools, human_courses: humanCourses })
+            pollPathResourcesListBuilt = { ai_tools: aiTools, human_courses: humanCourses }
+            setPathResources(pollPathResourcesMap)
+            setPathResourceWeights(pollPathResourceWeightsMap)
+            setPathResourcesList(pollPathResourcesListBuilt)
           }
-          
-          // Use current_hvq_score from database (persisted after status updates)
-          setCurrentHvqScore(upgradePath.current_hvq_score ?? hvqScore)
+
+          const pathData = {
+            efficiency_audit: efficiency,
+            immediate_steps: immediateSteps,
+            current_hvq_score: upgradePath.current_hvq_score ?? null,
+            updated_at: upgradePath.updated_at ?? null
+          }
+
+          const pillars = buildPillars(upgradePath) ?? DEFAULT_PILLARS
+          const vulnerability = calculateVulnerability(upgradePath.role || "", pillars)
+          const primaryPillar = upgradePath.primary_pillar || GOAL_PILLAR_MAP[upgradePath.role || ""]
+          const hvqScore = calculateHVQScore(pathData, pollPathResourcesListBuilt, pollPathResourceWeightsMap, vulnerability, pollPathResourcesMap, primaryPillar, upgradePath.updated_at)
+
+          setUpgradeData({
+            ...pathData,
+            current_hvq_score: hvqScore
+          })
+          setCurrentHvqScore(hvqScore)
           setState("results")
           setIsPolling(false)
         } catch (e) {
@@ -647,7 +683,7 @@ export default function UnifiedPathPage() {
       const supabase = createClient()
       const { data: updatedPath } = await supabase
         .from("upgrade_paths")
-        .select("role, main_goal, context")
+        .select("role, main_goal, context, primary_pillar")
         .eq("id", pathId)
         .maybeSingle()
       
@@ -655,7 +691,8 @@ export default function UnifiedPathPage() {
         setStrategyData({
           role: updatedPath.role || null,
           main_goal: updatedPath.main_goal || null,
-          context: updatedPath.context || null
+          context: updatedPath.context || null,
+          primary_pillar: updatedPath.primary_pillar ?? strategyData.primary_pillar ?? null
         })
       }
     }
@@ -670,16 +707,33 @@ export default function UnifiedPathPage() {
 
     try {
       const supabase = createClient()
+      
+      // Fetch current_hvq_score for rotation to previous_hvq_score
+      const { data: currentPath } = await supabase
+        .from("upgrade_paths")
+        .select("current_hvq_score")
+        .eq("id", pathId)
+        .single()
+      
+      const previousScore = currentPath?.current_hvq_score ?? null
+
       const currentEfficiencyAudit = upgradeData?.efficiency_audit || {}
       const updatedEfficiencyAudit = {
         delegate_to_machine: updatedData.efficiency_audit?.delegate_to_machine ?? currentEfficiencyAudit.delegate_to_machine ?? [],
         keep_for_human: updatedData.efficiency_audit?.keep_for_human ?? currentEfficiencyAudit.keep_for_human ?? []
       }
 
+      const newScore = updatedData.current_hvq_score ?? (() => {
+        const v = calculateVulnerability(strategyData.role || "", pathPillars ?? DEFAULT_PILLARS)
+        const pp = strategyData.primary_pillar || GOAL_PILLAR_MAP[strategyData.role || ""]
+        return calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights, v, pathResources, pp, updatedData.updated_at)
+      })()
+
       const payload = {
         immediate_steps: updatedData.immediate_steps ?? [],
         efficiency_audit: updatedEfficiencyAudit,
-        current_hvq_score: updatedData.current_hvq_score ?? calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights),
+        previous_hvq_score: previousScore,
+        current_hvq_score: newScore,
         updated_at: new Date().toISOString()
       }
 
@@ -718,8 +772,11 @@ export default function UnifiedPathPage() {
       efficiency_audit: updatedEfficiencyAudit
     }
 
-    const newScore = calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights)
-    setUpgradeData({ ...updatedData, current_hvq_score: newScore })
+    const v = calculateVulnerability(strategyData.role || "", pathPillars ?? DEFAULT_PILLARS)
+    const pp = strategyData.primary_pillar || GOAL_PILLAR_MAP[strategyData.role || ""]
+    const newScore = calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights, v, pathResources, pp, updatedData.updated_at)
+    const savedAt = new Date().toISOString()
+    setUpgradeData({ ...updatedData, current_hvq_score: newScore, updated_at: savedAt })
     setCurrentHvqScore(newScore)
 
     try {
@@ -743,8 +800,11 @@ export default function UnifiedPathPage() {
       immediate_steps: updatedSteps
     }
 
-    const newScore = calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights)
-    setUpgradeData({ ...updatedData, current_hvq_score: newScore })
+    const v = calculateVulnerability(strategyData.role || "", pathPillars ?? DEFAULT_PILLARS)
+    const pp = strategyData.primary_pillar || GOAL_PILLAR_MAP[strategyData.role || ""]
+    const newScore = calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights, v, pathResources, pp, updatedData.updated_at)
+    const savedAt = new Date().toISOString()
+    setUpgradeData({ ...updatedData, current_hvq_score: newScore, updated_at: savedAt })
     setCurrentHvqScore(newScore)
 
     try {
@@ -770,8 +830,11 @@ export default function UnifiedPathPage() {
       immediate_steps: updatedSteps
     }
 
-    const newScore = calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights)
-    setUpgradeData({ ...updatedData, current_hvq_score: newScore })
+    const v = calculateVulnerability(strategyData.role || "", pathPillars ?? DEFAULT_PILLARS)
+    const pp = strategyData.primary_pillar || GOAL_PILLAR_MAP[strategyData.role || ""]
+    const newScore = calculateHVQScore(updatedData, pathResourcesList, pathResourceWeights, v, pathResources, pp, updatedData.updated_at)
+    const savedAt = new Date().toISOString()
+    setUpgradeData({ ...updatedData, current_hvq_score: newScore, updated_at: savedAt })
     setCurrentHvqScore(newScore)
     setNewStepText("")
 
@@ -858,6 +921,32 @@ export default function UnifiedPathPage() {
   const automatedTasksCompleted = (delegateToMachine || []).filter((task: DelegateTaskItem) => task.is_completed === true).length
   const stepsCompleted = (immediateSteps || []).filter((step: ImmediateStepItem) => step.is_completed === true).length
   const toolsAdded = pathResourcesList?.ai_tools?.length || 0
+
+  // Replacement Risk / decay UI: vulnerability, primaryPillar, calculated score, delegation bonus %
+  const pathVulnerability = calculateVulnerability(strategyData.role || "", pathPillars ?? DEFAULT_PILLARS)
+  const primaryPillar = strategyData.primary_pillar || GOAL_PILLAR_MAP[strategyData.role || ""]
+  const calculatedScore = upgradeData
+    ? calculateHVQScore(
+        upgradeData,
+        pathResourcesList ?? { ai_tools: [], human_courses: [] },
+        pathResourceWeights,
+        pathVulnerability,
+        pathResources,
+        primaryPillar,
+        upgradeData.updated_at
+      )
+    : null
+  const showDecayWarning =
+    upgradeData?.current_hvq_score != null &&
+    calculatedScore != null &&
+    calculatedScore < upgradeData.current_hvq_score
+  const delegationBonusPercent =
+    pathVulnerability > VULNERABILITY_HIGH_RISK_THRESHOLD
+      ? Math.round(DELEGATION_BONUS_PER_TASK_HIGH_RISK * 100)
+      : Math.round(DELEGATION_BONUS_PER_TASK * 100)
+
+  // UI must use calculatedScore (live calculateHVQScore), not DB current_hvq_score. Fallback when no upgradeData.
+  const displayHvq = calculatedScore ?? currentHvqScore ?? 10
 
   return (
     <div className="min-h-screen">
@@ -953,11 +1042,11 @@ export default function UnifiedPathPage() {
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <div className="text-xl md:text-2xl font-bold text-blue-900 dark:text-blue-100">{currentHvqScore ?? 100}</div>
+                <div className="text-xl md:text-2xl font-bold text-blue-900 dark:text-blue-100">{displayHvq}</div>
                 <div className="w-20 h-8">
                   <svg width="100%" height="32" className="text-blue-600 dark:text-blue-400">
                     {Array.from({ length: 7 }).map((_, i) => {
-                      const barHeight = Math.random() * 18 + 6 + ((currentHvqScore ?? 100 - 100) / 15)
+                      const barHeight = Math.random() * 18 + 6 + Math.max(0, (displayHvq - 10) / 50)
                       const x = (i * 11) + 2
                       return (
                         <rect
@@ -975,6 +1064,8 @@ export default function UnifiedPathPage() {
                 </div>
               </div>
             </Card>
+
+            <ReplacementRiskGauge pathVulnerability={pathVulnerability} />
 
             {/* Automated Tasks */}
             <Card className="p-3">
@@ -1072,6 +1163,13 @@ export default function UnifiedPathPage() {
               </div>
             </Card>
           </div>
+
+          <KnowledgeDecayBanner
+            show={showDecayWarning}
+            calculatedScore={calculatedScore}
+            lastRecordedScore={upgradeData?.current_hvq_score}
+            decayRatePercent={Math.round(HVQ_DECAY_RATE * 100)}
+          />
         </div>
 
         {/* Efficiency Audit */}
@@ -1106,6 +1204,7 @@ export default function UnifiedPathPage() {
                                   : "text-zinc-700 dark:text-zinc-300"
                               }`}
                               onClick={() => handleToggleDelegate(index)}
+                              title={!item.is_completed ? `Completing this will reduce your Replacement Risk by ${delegationBonusPercent}%.` : undefined}
                             >
                               {item.task}
                             </label>
@@ -1253,13 +1352,12 @@ export default function UnifiedPathPage() {
                       }))
                     }
                     
-                    // Recalculate HVQ score with updated weights
+                    // Recalculate HVQ score with updated weights (use status map with this tool's new status)
                     const { current_hvq_score: _, ...dataForCalculation } = upgradeData!
-                    const newScore = calculateHVQScore(
-                      dataForCalculation,
-                      pathResourcesList,
-                      pathResourceWeights
-                    )
+                    const statusMap = { ...pathResources, ...(toolId && newStatus ? { [toolId]: newStatus } : {}) }
+                    const v = calculateVulnerability(strategyData.role || "", pathPillars ?? DEFAULT_PILLARS)
+                    const pp = strategyData.primary_pillar || GOAL_PILLAR_MAP[strategyData.role || ""]
+                    const newScore = calculateHVQScore(dataForCalculation, pathResourcesList, pathResourceWeights, v, statusMap, pp, upgradeData?.updated_at)
                     setUpgradeData(prev => prev ? { ...prev, current_hvq_score: newScore } : null)
                     setCurrentHvqScore(newScore)
                     router.refresh()
@@ -1363,6 +1461,7 @@ export default function UnifiedPathPage() {
                 const courseId = course.id
                 const pathResourceStatus = courseId ? (pathResources[courseId] || 'suggested') : 'suggested'
                 const isRemoved = pathResourceStatus === 'removed'
+                const isMoatMatch = !!primaryPillar && !!course.hvq_primary_pillar && course.hvq_primary_pillar === primaryPillar
                 
                 // Don't render if removed
                 if (isRemoved) return null
@@ -1405,20 +1504,22 @@ export default function UnifiedPathPage() {
                     }))
                   }
                   
-                  // Recalculate HVQ score with updated weights
+                  // Recalculate HVQ score with updated weights (use status map with this course's new status)
                   const { current_hvq_score: _, ...dataForCalculation } = upgradeData!
-                  const newScore = calculateHVQScore(
-                    dataForCalculation,
-                    pathResourcesList,
-                    pathResourceWeights
-                  )
+                  const statusMap = { ...pathResources, ...(courseId && newStatus ? { [courseId]: newStatus } : {}) }
+                  const v = calculateVulnerability(strategyData.role || "", pathPillars ?? DEFAULT_PILLARS)
+                  const pp = strategyData.primary_pillar || GOAL_PILLAR_MAP[strategyData.role || ""]
+                  const newScore = calculateHVQScore(dataForCalculation, pathResourcesList, pathResourceWeights, v, statusMap, pp, upgradeData?.updated_at)
                   setUpgradeData(prev => prev ? { ...prev, current_hvq_score: newScore } : null)
                   setCurrentHvqScore(newScore)
                   router.refresh()
                 }
                 
                 return (
-                  <Card key={i} className={`relative ${isOwner ? "group transition-all hover:border-purple-200 dark:hover:border-purple-800" : "border-zinc-200 dark:border-zinc-800"}`}>
+                  <Card
+                    key={i}
+                    className={`relative ${isOwner ? "group transition-all hover:border-purple-200 dark:hover:border-purple-800" : "border-zinc-200 dark:border-zinc-800"} ${isMoatMatch ? "ring-2 ring-emerald-400 dark:ring-emerald-500 border-emerald-200 dark:border-emerald-800" : ""}`}
+                  >
                     {/* Trash icon button - appears on hover for all resources */}
                     {isOwner && courseId && (
                       <div 
@@ -1444,7 +1545,14 @@ export default function UnifiedPathPage() {
                           className="w-16 h-16 rounded-lg object-contain bg-white p-1"
                         />
                       </div>
-                      <CardTitle className="text-base md:text-sm font-semibold">{course.title}</CardTitle>
+                      <div className="flex items-start justify-between gap-2">
+                        <CardTitle className="text-base md:text-sm font-semibold">{course.title}</CardTitle>
+                        {isMoatMatch && (
+                          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 rounded-full">
+                            2× Value
+                          </span>
+                        )}
+                      </div>
                     </CardHeader>
                     <CardContent>
                       <p className="mb-3 text-sm md:text-xs text-zinc-500">
@@ -1505,12 +1613,25 @@ export default function UnifiedPathPage() {
                       <tr key={i} className={`relative ${step.is_completed ? 'opacity-60' : ''} ${isOwner ? 'hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer group' : ''}`} onClick={() => isOwner && handleToggleStep(i)}>
                         {isOwner && (
                           <td className="pl-3 pr-1 py-3">
-                            <Checkbox
-                              checked={step.is_completed}
-                              onCheckedChange={() => handleToggleStep(i)}
-                              onClick={(e) => e.stopPropagation()}
-                              className="ml-0"
-                            />
+                            <div className="flex flex-col items-center gap-4">
+                              <Checkbox
+                                checked={step.is_completed}
+                                onCheckedChange={() => handleToggleStep(i)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="ml-0"
+                              />
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  handleRemoveStep(i)
+                                }}
+                                className="md:hidden text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/20 rounded p-1 transition-colors"
+                                title="Remove step"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           </td>
                         )}
                         <td className="hidden md:table-cell px-1 py-3 relative">

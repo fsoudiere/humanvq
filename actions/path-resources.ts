@@ -2,6 +2,12 @@
 
 import { createClient } from "@/utils/supabase/server"
 import { revalidatePath } from "next/cache"
+import {
+  calculateHVQScore,
+  calculateVulnerability,
+  GOAL_PILLAR_MAP,
+  type HumanPillars,
+} from "@/lib/hvq-logic"
 
 export interface AddResourceToPathResult {
   success: boolean
@@ -20,25 +26,34 @@ export interface UpdateResourceStatusResult {
 }
 
 /**
- * Calculation Helper: Calculate HVQ score for a given path
- * Fetches all path_resources, immediate_steps, and delegate_tasks for a pathId
- * Returns a single number: (hvq_score_machine/human * impact_weight) + Steps + Delegate Tasks + 100
+ * Calculation Helper: Calculate HVQ score using Replacement Risk formula
+ * Fetches all path data (pillars, resources, status) and uses calculateHVQScore from hvq-logic.ts
  */
 async function calculatePathHVQScore(pathId: string): Promise<number | null> {
   const supabase = await createClient()
   
-  // Fetch all path data needed for calculation
+  // Fetch path data including pillars, primary_pillar, role, updated_at
   const { data: pathData, error: pathDataError } = await supabase
     .from("upgrade_paths")
     .select(`
+      role,
+      primary_pillar,
+      pillar_liability,
+      pillar_context,
+      pillar_edge_case,
+      pillar_connection,
       immediate_steps,
       efficiency_audit,
+      updated_at,
       path_resources (
         status,
         impact_weight,
         resources (
+          id,
+          type,
           hvq_score_machine,
-          hvq_score_human
+          hvq_score_human,
+          hvq_primary_pillar
         )
       )
     `)
@@ -50,50 +65,76 @@ async function calculatePathHVQScore(pathId: string): Promise<number | null> {
     return null
   }
 
-  // Base Score: 100
-  const BASE_SCORE = 100
-  
-  // Completed Steps: (Count * 15)
-  // Parse immediate_steps (could be JSON string or object)
-  const immediateSteps = typeof pathData.immediate_steps === 'string'
-    ? JSON.parse(pathData.immediate_steps || '[]')
-    : (pathData.immediate_steps || [])
-  
-  const completedSteps = Array.isArray(immediateSteps)
-    ? immediateSteps.filter((step: any) => step.is_completed).length
-    : 0
-  const stepPoints = completedSteps * 15
-  
-  // Delegate Tasks: (Count * 10)
-  // Parse efficiency_audit (could be JSON string or object)
+  // Build Human Pillars (use DB values or default to 0.5 each)
+  const pillars: HumanPillars = {
+    liability: pathData.pillar_liability ?? 0.5,
+    context: pathData.pillar_context ?? 0.5,
+    edgeCase: pathData.pillar_edge_case ?? 0.5,
+    connection: pathData.pillar_connection ?? 0.5,
+  }
+
+  // Calculate vulnerability
+  const vulnerability = calculateVulnerability(pathData.role || "", pillars)
+
+  // Get primaryPillar (from DB or GOAL_PILLAR_MAP)
+  const primaryPillar = pathData.primary_pillar || GOAL_PILLAR_MAP[pathData.role || ""]
+
+  // Build resources lists and status/weights maps
+  const aiTools: Array<{ id?: string; hvq_score_machine?: number; hvq_score_human?: number; hvq_primary_pillar?: string }> = []
+  const humanCourses: Array<{ id?: string; hvq_score_machine?: number; hvq_score_human?: number; hvq_primary_pillar?: string }> = []
+  const pathResourceStatus: Record<string, string> = {}
+  const resourceWeights: Record<string, number> = {}
+
+  if (pathData.path_resources && Array.isArray(pathData.path_resources)) {
+    pathData.path_resources.forEach((pr: any) => {
+      const resource = pr.resources
+      if (resource && resource.id) {
+        pathResourceStatus[resource.id] = pr.status
+        resourceWeights[resource.id] = pr.impact_weight ?? 0
+
+        const resourceItem = {
+          id: resource.id,
+          hvq_score_machine: resource.hvq_score_machine,
+          hvq_score_human: resource.hvq_score_human,
+          hvq_primary_pillar: resource.hvq_primary_pillar,
+        }
+
+        if (resource.type === "ai_tool") {
+          aiTools.push(resourceItem)
+        } else if (resource.type === "human_course") {
+          humanCourses.push(resourceItem)
+        }
+      }
+    })
+  }
+
+  // Parse efficiency_audit and immediate_steps
   const efficiencyAudit = typeof pathData.efficiency_audit === 'string'
     ? JSON.parse(pathData.efficiency_audit || '{}')
     : (pathData.efficiency_audit || {})
   
-  const completedDelegateTasks = Array.isArray(efficiencyAudit?.delegate_to_machine)
-    ? (efficiencyAudit.delegate_to_machine || []).filter((task: any) => task.is_completed).length
-    : 0
-  const delegatePoints = completedDelegateTasks * 10
-  
-  // Weighted Resources: SUM of (hvq_score_machine/human * impact_weight)
-  // Filter out removed resources (status = 'removed') as they have impact_weight = 0
-  let resourcePoints = 0
-  if (pathData.path_resources && Array.isArray(pathData.path_resources)) {
-    pathData.path_resources.forEach((pr: any) => {
-      // Only count resources that are not removed
-      if (pr.resources && pr.status !== 'removed') {
-        // Get resource leverage (hvq_score_machine for tools, hvq_score_human for courses)
-        const leverage = pr.resources.hvq_score_machine || pr.resources.hvq_score_human || 0
-        // Get impact_weight from path_resources table
-        const impactWeight = pr.impact_weight || 0
-        // Sum: resource_leverage * impact_weight
-        resourcePoints += leverage * impactWeight
-      }
-    })
-  }
-  
-  // Total: Base Score + Step Points + Delegate Points + Weighted Resources
-  return BASE_SCORE + stepPoints + delegatePoints + Math.round(resourcePoints)
+  const immediateSteps = typeof pathData.immediate_steps === 'string'
+    ? JSON.parse(pathData.immediate_steps || '[]')
+    : (pathData.immediate_steps || [])
+
+  // Calculate HVQ using new Replacement Risk formula
+  const score = calculateHVQScore(
+    {
+      efficiency_audit: efficiencyAudit,
+      immediate_steps: immediateSteps,
+    },
+    {
+      ai_tools: aiTools,
+      human_courses: humanCourses,
+    },
+    resourceWeights,
+    vulnerability,
+    pathResourceStatus,
+    primaryPillar,
+    pathData.updated_at
+  )
+
+  return score
 }
 
 /**
