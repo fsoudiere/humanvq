@@ -62,6 +62,13 @@ export default function CourseGroup({ title, items, isOwner, username, icon, col
                     {statusInfo.label}
                   </span>
                 )}
+                {(item.resource.paid_count && item.resource.paid_count > 0) ||
+                 (item.resource.completion_count && item.resource.completion_count > 0) ||
+                 (item.resource.enrollment_count && item.resource.enrollment_count > 0) ? (
+                  <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm md:text-xs font-medium border bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800">
+                    Community Trust
+                  </span>
+                ) : null}
                 {item.resource.url && (
                   <a
                     href={item.resource.url}

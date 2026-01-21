@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { ShareButton } from "@/components/share-button"
 import { DeletePathButton } from "@/components/delete-path-button"
 import { ClonePathButton } from "@/components/clone-path-button"
+import ResourceIcon from "@/components/resource-icon"
 
 interface PathCardProps {
   path: any
@@ -24,6 +25,7 @@ interface PathCardProps {
   mainGoal: string | null
   role: string | null
   username?: string
+  aiTools?: Array<{ id: string; name: string; logodev?: string; url?: string }>
 }
 
 export function PathCard({
@@ -41,6 +43,7 @@ export function PathCard({
   mainGoal,
   role,
   username,
+  aiTools = [],
 }: PathCardProps) {
   return (
     <Card className="h-full transition-shadow cursor-pointer relative border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700 group">
@@ -143,6 +146,26 @@ export function PathCard({
                 </p>
               )}
             </div>
+
+            {/* AI Tool Icons */}
+            {aiTools.length > 0 && (
+              <div className="flex items-center gap-2 mb-2">
+                {aiTools.map((tool) => (
+                  <div
+                    key={tool.id}
+                    className="flex-shrink-0"
+                    title={tool.name}
+                  >
+                    <ResourceIcon
+                      name={tool.name}
+                      logodev={tool.logodev}
+                      url={tool.url}
+                      className="w-6 h-6 rounded"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Last Updated Time */}
             {formattedUpdated && (

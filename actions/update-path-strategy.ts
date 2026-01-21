@@ -54,7 +54,16 @@ export async function updatePathStrategy(
 
     console.log(`✅ Updated path strategy for path ID: ${data.pathId}`)
 
-    // 3. Re-run matching with new strategy data
+    // 3. Fetch path's primary_pillar for matching
+    const { data: pathData, error: pathDataError } = await supabase
+      .from("upgrade_paths")
+      .select("primary_pillar")
+      .eq("id", data.pathId)
+      .single()
+
+    const primaryPillar = pathData?.primary_pillar || null
+
+    // 4. Re-run matching with new strategy data
     try {
       const embeddingResponse = await openai.embeddings.create({
         model: "text-embedding-3-small",
@@ -66,10 +75,11 @@ export async function updatePathStrategy(
       const { data: tools, error: toolError } = await supabase.rpc("match_resources", {
         query_embedding: userVector,
         match_threshold: 0.1,
-        match_count: 3,
+        match_count: 6,
         min_machine_score: 1,
         min_human_score: 0,
-        filter_type: "ai_tool" 
+        filter_type: "ai_tool",
+        target_pillar: primaryPillar
       })
 
       let verifiedTools: any[] = []
@@ -82,10 +92,11 @@ export async function updatePathStrategy(
       const { data: courses, error: courseError } = await supabase.rpc("match_resources", {
         query_embedding: userVector,
         match_threshold: 0.1,
-        match_count: 3,
+        match_count: 6,
         min_machine_score: 0,
         min_human_score: 1,
-        filter_type: "human_course"
+        filter_type: "human_course",
+        target_pillar: primaryPillar
       })
 
       let verifiedCourses: any[] = []

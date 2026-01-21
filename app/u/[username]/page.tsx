@@ -315,6 +315,31 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   // Filter paths based on ownership
   const displayPaths = isOwner ? paths : paths.filter((p: any) => p.is_public === true)
 
+  // Build map of path_id -> AI tools (added_paid, added_free, or wishlisted, max 3)
+  const pathAiToolsMap: Record<string, Array<{ id: string; name: string; logodev?: string; url?: string }>> = {}
+  validPathResources.forEach((pr: any) => {
+    const resource = pr.resource
+    const pathId = pr.path_id
+    
+    // Only include AI tools (not human_courses) with status added_paid, added_free, or wishlisted
+    if (resource && 
+        resource.type !== 'human_course' && 
+        (pr.status === 'added_paid' || pr.status === 'added_free' || pr.status === 'wishlisted')) {
+      if (!pathAiToolsMap[pathId]) {
+        pathAiToolsMap[pathId] = []
+      }
+      // Only add if we don't have 3 yet
+      if (pathAiToolsMap[pathId].length < 3) {
+        pathAiToolsMap[pathId].push({
+          id: resource.id,
+          name: resource.name,
+          logodev: resource.logodev,
+          url: resource.url
+        })
+      }
+    }
+  })
+
   // Calculate metrics for dashboard
   // 1. Count completed automated tasks across all paths (Time Saved calculation)
   // Each completed task in delegate_to_machine represents automated work (estimate 10 hours per task)
@@ -617,6 +642,9 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                   year: 'numeric'
                 }) : null
 
+                // Get AI tools for this path (max 3)
+                const pathAiTools = pathAiToolsMap[path.id] || []
+
                 return (
                   <PathCard
                     key={path.id}
@@ -634,6 +662,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
                     mainGoal={path.main_goal}
                     role={path.role}
                     username={displayUsername}
+                    aiTools={pathAiTools}
                   />
                 )
               })}

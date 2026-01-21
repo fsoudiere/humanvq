@@ -56,6 +56,9 @@ interface ResourceItem {
   hvq_score_machine?: number
   hvq_score_human?: number
   hvq_primary_pillar?: string
+  paid_count?: number
+  completion_count?: number
+  enrollment_count?: number
 }
 
 interface UpgradePathData {
@@ -410,6 +413,9 @@ export default function UnifiedPathPage() {
               hvq_score_machine: resource.hvq_score_machine,
               hvq_score_human: resource.hvq_score_human,
               hvq_primary_pillar: resource.hvq_primary_pillar,
+              paid_count: resource.paid_count,
+              completion_count: resource.completion_count,
+              enrollment_count: resource.enrollment_count,
             }
             if (resource.type === "ai_tool") aiTools.push(resourceItem)
             else if (resource.type === "human_course") humanCourses.push(resourceItem)
@@ -629,6 +635,9 @@ export default function UnifiedPathPage() {
                   hvq_score_machine: resource.hvq_score_machine,
                   hvq_score_human: resource.hvq_score_human,
                   hvq_primary_pillar: resource.hvq_primary_pillar,
+                  paid_count: resource.paid_count,
+                  completion_count: resource.completion_count,
+                  enrollment_count: resource.enrollment_count,
                 }
                 if (resource.type === "ai_tool") aiTools.push(resourceItem)
                 else if (resource.type === "human_course") humanCourses.push(resourceItem)
@@ -1311,7 +1320,7 @@ export default function UnifiedPathPage() {
                   />
                 )}
               </div>
-              <div className="grid gap-6 md:grid-cols-3">
+              <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
                 {(visibleTools || []).map((tool, i) => {
                   const toolId = tool.id && tool.id !== 'null' ? tool.id : null
                   const pathResourceStatus = toolId ? (pathResources[toolId] || 'suggested') : 'suggested'
@@ -1424,6 +1433,13 @@ export default function UnifiedPathPage() {
                               pathResourceStatus={pathResourceStatus}
                               onStatusChange={handleStatusChange}
                             />
+                            {(tool.paid_count && tool.paid_count > 0) ||
+                             (tool.completion_count && tool.completion_count > 0) ||
+                             (tool.enrollment_count && tool.enrollment_count > 0) ? (
+                              <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm md:text-xs font-medium border bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800">
+                                Community Trust
+                              </span>
+                            ) : null}
                             {tool.url && (
                               <a 
                                 href={tool.url} 
@@ -1456,7 +1472,7 @@ export default function UnifiedPathPage() {
                 Human Skills
               </h2>
             </div>
-            <div className="grid gap-6 md:grid-cols-3">
+            <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
               {(pathResourcesList.human_courses || []).map((course, i) => {
                 const courseId = course.id
                 const pathResourceStatus = courseId ? (pathResources[courseId] || 'suggested') : 'suggested'
@@ -1568,6 +1584,13 @@ export default function UnifiedPathPage() {
                             pathResourceStatus={pathResourceStatus}
                             onStatusChange={handleStatusChange}
                           />
+                          {(course.paid_count && course.paid_count > 0) ||
+                           (course.completion_count && course.completion_count > 0) ||
+                           (course.enrollment_count && course.enrollment_count > 0) ? (
+                            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm md:text-xs font-medium border bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800">
+                              Community Trust
+                            </span>
+                          ) : null}
                           {course.url && (
                             <a 
                               href={course.url} 

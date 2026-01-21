@@ -1,11 +1,11 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/utils/supabase/client"
 import { useRouter } from "next/navigation"
 import { Search, Plus, Sparkles, X } from "lucide-react"
 import ResourceIcon from "@/components/resource-icon"
 import { addResourceToPath } from "@/actions/path-resources"
+import { searchResources } from "@/actions/search-resources"
 import AddMissingResourceModal from "@/components/add-missing-resource-modal"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,6 +23,12 @@ interface ResourceItem {
   logodev?: string
   hvq_score_machine?: number
   hvq_score_human?: number
+  // Optional fields that will be populated after router.refresh()
+  hvq_primary_pillar?: string
+  paid_count?: number
+  completion_count?: number
+  enrollment_count?: number
+  capabilities?: string[]
 }
 
 interface AddToolSearchProps {
@@ -38,11 +44,11 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
   const [adding, setAdding] = useState<string | null>(null)
   const [showMissingModal, setShowMissingModal] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<'all' | 'tool' | 'course'>('all')
 
-  const supabase = createClient()
   const router = useRouter()
 
-  // 1. Search Logic
+  // 1. Search Logic - Use semantic search via embeddings
   useEffect(() => {
     const searchTools = async () => {
       if (query.length < 2) {
@@ -51,20 +57,30 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
       }
       setLoading(true)
 
-      // 👇 WE MUST SELECT 'type' TO KNOW IF IT IS A COURSE
-      const { data } = await supabase
-        .from("resources")
-        .select("id, name, description, type, url, logodev")
-        .ilike("name", `%${query}%`)
-        .limit(5)
-
-      setResults(data || [])
-      setLoading(false)
+      try {
+        // Determine filter_type based on active tab
+        const filterType = activeTab === 'tool' ? 'tool' : activeTab === 'course' ? 'course' : 'all'
+        
+        // Call server action to search using embeddings
+        const result = await searchResources(query, filterType)
+        
+        if (result.success && result.data) {
+          setResults(result.data)
+        } else {
+          console.error("Search failed:", result.error)
+          setResults([])
+        }
+      } catch (error) {
+        console.error("Search error:", error)
+        setResults([])
+      } finally {
+        setLoading(false)
+      }
     }
 
     const timer = setTimeout(searchTools, 300)
     return () => clearTimeout(timer)
-  }, [query])
+  }, [query, activeTab])
 
   // 2. Add Logic - Use server action to add to path_resources
   const addToStack = async (tool: any) => {
@@ -75,8 +91,11 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
 
     setAdding(tool.id)
 
-    // Determine resource type
-    const resourceType = tool.type === 'human_course' ? 'human_course' : 'ai_tool'
+    // Determine resource type - infer from activeTab if type not in response
+    // RPC returns name, description, url, logodev - type may or may not be included
+    const resourceType = tool.type === 'human_course' 
+      ? 'human_course' 
+      : (activeTab === 'course' ? 'human_course' : 'ai_tool')
 
     // Optimistic UI update - add to beginning of list immediately
     if (onAdd) {
@@ -178,7 +197,7 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
                 <p className="font-semibold text-base md:text-sm text-gray-900 dark:text-zinc-100">{tool.name}</p>
               </div>
               <div className="flex gap-2 items-center pl-[34px]">
-                {tool.type === 'human_course' && (
+                {(tool.type === 'human_course' || activeTab === 'course') && (
                   <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 rounded">Course</span>
                 )}
                 <p className="text-sm md:text-xs text-gray-500 dark:text-zinc-400">{tool.description}</p>
@@ -233,24 +252,59 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
 
       {/* Desktop: Inline Search Input */}
       <div className="hidden md:block relative min-w-[400px] max-w-[600px] flex-1">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
-        <input
-          type="text"
-          placeholder="Type to search (e.g. 'Cursor' or 'Web Dev Course')..."
-          className="w-full pl-10 pr-4 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500 text-base md:text-sm"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {query.length >= 2 && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border rounded-md shadow-lg z-50 max-h-96 overflow-y-auto min-w-full">
-            {renderResults(false)}
-          </div>
-        )}
+        {/* Tabs */}
+        <div className="flex gap-1 mb-2">
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              activeTab === 'all'
+                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setActiveTab('tool')}
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              activeTab === 'tool'
+                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+            }`}
+          >
+            Tools
+          </button>
+          <button
+            onClick={() => setActiveTab('course')}
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              activeTab === 'course'
+                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+            }`}
+          >
+            Courses
+          </button>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
+          <input
+            type="text"
+            placeholder="Type to search (e.g. 'Cursor' or 'Web Dev Course')..."
+            className="w-full pl-10 pr-4 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-gray-500 text-base md:text-sm"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {query.length >= 2 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border rounded-md shadow-lg z-50 max-h-96 overflow-y-auto min-w-full">
+              {renderResults(false)}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Mobile: Full Screen Search Sheet */}
       <Sheet open={isOpen} onOpenChange={setIsOpen}>
-        <SheetContent 
+        <SheetContent
           side="bottom"
           className="h-screen max-h-screen w-full rounded-none p-0 gap-0 [&>button]:hidden"
         >
@@ -267,8 +321,41 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
               </Button>
             </div>
           </SheetHeader>
-          
+
           <div className="flex-1 overflow-y-auto px-6 py-4" style={{ height: 'calc(100vh - 120px)' }}>
+            {/* Tabs */}
+            <div className="flex gap-1 mb-4">
+              <button
+                onClick={() => setActiveTab('all')}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  activeTab === 'all'
+                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setActiveTab('tool')}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  activeTab === 'tool'
+                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+                }`}
+              >
+                Tools
+              </button>
+              <button
+                onClick={() => setActiveTab('course')}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  activeTab === 'course'
+                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+                }`}
+              >
+                Courses
+              </button>
+            </div>
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
@@ -302,7 +389,7 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
                         <p className="font-semibold text-base md:text-sm text-gray-900 dark:text-zinc-100">{tool.name}</p>
                       </div>
                       <div className="flex gap-2 items-center pl-[34px]">
-                        {tool.type === 'human_course' && (
+                        {(tool.type === 'human_course' || activeTab === 'course') && (
                           <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 rounded">Course</span>
                         )}
                         <p className="text-sm md:text-xs text-gray-500 dark:text-zinc-400">{tool.description}</p>

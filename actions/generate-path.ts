@@ -73,7 +73,7 @@ export async function generatePath(
     // Fetch the path record to use its data for matching
     const { data: pathRecord, error: pathFetchError } = await supabase
       .from("upgrade_paths")
-      .select("role, main_goal, context")
+      .select("role, main_goal, context, primary_pillar")
       .eq("id", pathId)
       .single()
 
@@ -103,10 +103,11 @@ export async function generatePath(
       const { data: tools, error: toolError } = await supabase.rpc("match_resources", {
         query_embedding: userVector,
         match_threshold: 0.1, // Keep this low to ensure matches
-        match_count: 3,       // Get top 3
+        match_count: 6,       // Get top 6
         min_machine_score: 1,
         min_human_score: 0,
-        filter_type: "ai_tool" 
+        filter_type: "ai_tool",
+        target_pillar: pathRecord.primary_pillar || null
       })
 
       if (toolError) {
@@ -120,10 +121,11 @@ export async function generatePath(
       const { data: courses, error: courseError } = await supabase.rpc("match_resources", {
         query_embedding: userVector,
         match_threshold: 0.1,
-        match_count: 3,
+        match_count: 6,
         min_machine_score: 0,
         min_human_score: 1,
-        filter_type: "human_course"
+        filter_type: "human_course",
+        target_pillar: pathRecord.primary_pillar || null
       })
 
       if (courseError) {
