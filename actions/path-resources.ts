@@ -29,7 +29,7 @@ export interface UpdateResourceStatusResult {
  * Calculation Helper: Calculate HVQ score using Replacement Risk formula
  * Fetches all path data (pillars, resources, status) and uses calculateHVQScore from hvq-logic.ts
  */
-async function calculatePathHVQScore(pathId: string): Promise<number | null> {
+export async function calculatePathHVQScore(pathId: string): Promise<number | null> {
   const supabase = await createClient()
   
   // Fetch path data including pillars, primary_pillar, role, updated_at

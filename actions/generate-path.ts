@@ -4,6 +4,7 @@ import { createClient } from "@/utils/supabase/server"
 import { revalidatePath } from "next/cache"
 import OpenAI from "openai"
 import { ensureProfile } from "@/actions/profiles"
+import { calculatePathHVQScore } from "@/actions/path-resources"
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -211,6 +212,26 @@ export async function generatePath(
           console.log(`✅ Inserted ${courseInserts.length} courses into path_resources`)
         }
       }
+    }
+
+    // =========================================================
+    // 📊 INITIAL HVQ SCORE
+    // =========================================================
+    const initialScore = await calculatePathHVQScore(pathId)
+
+    if (initialScore !== null) {
+      const { error: hvqUpdateError } = await supabase
+        .from("upgrade_paths")
+        .update({ current_hvq_score: initialScore })
+        .eq("id", pathId)
+
+      if (hvqUpdateError) {
+        console.error("❌ Failed to set initial HVQ score:", hvqUpdateError)
+      } else {
+        console.log("✅ Logged initial HVQ score for path", pathId, "→", initialScore)
+      }
+    } else {
+      console.error("❌ HVQ calculation returned null; skipping initial score update")
     }
 
     // =========================================================
