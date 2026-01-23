@@ -29,15 +29,8 @@ export function ClonePathButton({ pathId, username, variant = "ghost", size = "i
       const result = await clonePath(pathId)
       
       if (result.success && result.pathId) {
-        // Fetch the new path to get its slug or ID for redirect
-        const supabase = createClient()
-        const { data: newPath } = await supabase
-          .from("upgrade_paths")
-          .select("slug, id")
-          .eq("id", result.pathId)
-          .maybeSingle()
-
         // Get username if not provided
+        const supabase = createClient()
         let targetUsername = username
         if (!targetUsername) {
           const { data: { user } } = await supabase.auth.getUser()
@@ -51,10 +44,10 @@ export function ClonePathButton({ pathId, username, variant = "ghost", size = "i
           }
         }
 
-        // Redirect to the new path (will show analyzing state if not ready)
+        // Redirect to the new path using pathId (slug will be null initially)
+        // The path page will show "analyzing" state and poll for slug, just like create-path flow
         if (targetUsername) {
-          const pathSlug = newPath?.slug || newPath?.id || result.pathId
-          router.push(`/u/${targetUsername}/${pathSlug}`)
+          router.push(`/u/${targetUsername}/${result.pathId}`)
           router.refresh()
         } else {
           router.refresh()

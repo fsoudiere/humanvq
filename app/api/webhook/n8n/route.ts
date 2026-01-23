@@ -2,12 +2,7 @@ import { createClient } from "@/utils/supabase/server"
 import { NextRequest, NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { slugify, generateUniqueSlug } from "@/lib/slugify"
-import {
-  calculateHVQScore,
-  calculateVulnerability,
-  GOAL_PILLAR_MAP,
-  type HumanPillars,
-} from "@/lib/hvq-logic"
+import { calculatePathHVQScore } from "@/actions/path-resources"
 
 /**
  * Webhook endpoint for n8n to send processed path data.
@@ -124,6 +119,17 @@ export async function POST(request: NextRequest) {
       .eq("user_id", path.user_id)
       .maybeSingle()
 
+    // Define impact weights for HVQ calculation (must match path-resources.ts)
+    const weights: Record<string, number> = {
+      suggested: 0.5,
+      added_free: 1.0,
+      added_enrolled: 1.0,
+      added_paid: 1.5,
+      added_completed: 1.5,
+      wishlisted: 0.2,
+      removed: 0
+    }
+
     // Process ai_tools
     if (Array.isArray(ai_tools) && ai_tools.length > 0) {
       const toolInserts = ai_tools.map((tool: any) => ({
@@ -131,6 +137,7 @@ export async function POST(request: NextRequest) {
         resource_id: tool.id || tool.resource_id,
         user_id: path.user_id, // CRITICAL FOR RLS
         status: "suggested",
+        impact_weight: weights["suggested"] || 0.5,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })).filter((item: any) => item.resource_id) // Only include items with resource_id
@@ -159,6 +166,7 @@ export async function POST(request: NextRequest) {
         resource_id: course.id || course.resource_id,
         user_id: path.user_id, // CRITICAL FOR RLS
         status: "suggested",
+        impact_weight: weights["suggested"] || 0.5,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })).filter((item: any) => item.resource_id) // Only include items with resource_id
@@ -180,115 +188,53 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Calculate and save HVQ score after all data is saved (efficiency_audit, pillars, resources)
-    // This ensures current_hvq_score is set when the path is first generated
-    if (efficiency_audit != null || hasPillars) {
+    // =========================================================
+    // 📊 RECALCULATE HVQ SCORE AFTER PILLAR DATA IS SAVED
+    // =========================================================
+    // This ensures that after n8n provides the pillar data, we recalculate
+    // the HVQ score with accurate vulnerability values instead of placeholder 100
+    // Run this AFTER all data is saved (pillars, efficiency_audit, resources)
+    // This happens after efficiency_audit, pillars, and primary_pillar are updated above
+    if (hasPillars || efficiency_audit != null || hvq_analysis?.primary_pillar != null) {
       try {
-        // Fetch path data needed for HVQ calculation
-        const { data: pathForScore, error: pathScoreError } = await supabase
-          .from("upgrade_paths")
-          .select(`
-            role,
-            primary_pillar,
-            pillar_liability,
-            pillar_context,
-            pillar_edge_case,
-            pillar_connection,
-            efficiency_audit,
-            immediate_steps,
-            updated_at,
-            path_resources (
-              status,
-              impact_weight,
-              resources (
-                id,
-                type,
-                hvq_score_machine,
-                hvq_score_human,
-                hvq_primary_pillar
-              )
-            )
-          `)
-          .eq("id", path_id)
-          .single()
+        console.log("📊 Recalculating HVQ score with updated pillar data...")
+        const updatedScore = await calculatePathHVQScore(path_id)
 
-        if (!pathScoreError && pathForScore) {
-          // Build Human Pillars
-          const pillars: HumanPillars = {
-            liability: pathForScore.pillar_liability ?? 0.5,
-            context: pathForScore.pillar_context ?? 0.5,
-            edgeCase: pathForScore.pillar_edge_case ?? 0.5,
-            connection: pathForScore.pillar_connection ?? 0.5,
-          }
-
-          const vulnerability = calculateVulnerability(pathForScore.role || "", pillars)
-          const primaryPillar = pathForScore.primary_pillar || GOAL_PILLAR_MAP[pathForScore.role || ""]
-
-          // Build resources lists and maps
-          const aiTools: Array<{ id?: string; hvq_score_machine?: number; hvq_score_human?: number; hvq_primary_pillar?: string }> = []
-          const humanCourses: Array<{ id?: string; hvq_score_machine?: number; hvq_score_human?: number; hvq_primary_pillar?: string }> = []
-          const pathResourceStatus: Record<string, string> = {}
-          const resourceWeights: Record<string, number> = {}
-
-          if (pathForScore.path_resources && Array.isArray(pathForScore.path_resources)) {
-            pathForScore.path_resources.forEach((pr: any) => {
-              const resource = pr.resources
-              if (resource && resource.id) {
-                pathResourceStatus[resource.id] = pr.status
-                resourceWeights[resource.id] = pr.impact_weight ?? 0
-
-                const resourceItem = {
-                  id: resource.id,
-                  hvq_score_machine: resource.hvq_score_machine,
-                  hvq_score_human: resource.hvq_score_human,
-                  hvq_primary_pillar: resource.hvq_primary_pillar,
-                }
-
-                if (resource.type === "ai_tool") {
-                  aiTools.push(resourceItem)
-                } else if (resource.type === "human_course") {
-                  humanCourses.push(resourceItem)
-                }
-              }
-            })
-          }
-
-          // Parse efficiency_audit and immediate_steps
-          const efficiencyAudit = typeof pathForScore.efficiency_audit === 'string'
-            ? JSON.parse(pathForScore.efficiency_audit || '{}')
-            : (pathForScore.efficiency_audit || {})
-          
-          const immediateSteps = typeof pathForScore.immediate_steps === 'string'
-            ? JSON.parse(pathForScore.immediate_steps || '[]')
-            : (pathForScore.immediate_steps || [])
-
-          // Calculate HVQ
-          const hvqScore = calculateHVQScore(
-            {
-              efficiency_audit: efficiencyAudit,
-              immediate_steps: immediateSteps,
-            },
-            {
-              ai_tools: aiTools,
-              human_courses: humanCourses,
-            },
-            resourceWeights,
-            vulnerability,
-            pathResourceStatus,
-            primaryPillar,
-            pathForScore.updated_at
-          )
-
-          // Save HVQ score (no previous_hvq_score rotation on initial generation)
-          await supabase
+        if (updatedScore !== null) {
+          // Get current score before update for rotation (only if updating existing score)
+          const { data: currentPathData } = await supabase
             .from("upgrade_paths")
-            .update({ current_hvq_score: hvqScore })
+            .select("current_hvq_score")
+            .eq("id", path_id)
+            .single()
+
+          const currentScore = currentPathData?.current_hvq_score || null
+
+          // Update with new calculated score
+          const { error: hvqUpdateError } = await supabase
+            .from("upgrade_paths")
+            .update({
+              previous_hvq_score: currentScore,
+              current_hvq_score: updatedScore
+            })
             .eq("id", path_id)
 
-          console.log(`✅ Calculated and saved HVQ score: ${hvqScore}`)
+          if (hvqUpdateError) {
+            console.error("❌ Failed to update HVQ score after pillar update:", hvqUpdateError)
+          } else {
+            console.log(`✅ Recalculated and updated HVQ score: ${currentScore ?? 'null'} → ${updatedScore}`)
+            
+            // Revalidate dashboard to show updated score immediately
+            // Dashboard is at /u/[username] route
+            if (profile?.username) {
+              revalidatePath(`/u/${profile.username}`)
+            }
+          }
+        } else {
+          console.error("❌ HVQ calculation returned null after pillar update")
         }
       } catch (scoreError) {
-        console.error("❌ Failed to calculate/save HVQ score in webhook:", scoreError)
+        console.error("❌ Failed to recalculate/save HVQ score in webhook:", scoreError)
         // Continue - path data was saved successfully
       }
     }

@@ -92,7 +92,7 @@ export async function generatePath(
       // Use the path record's data for embedding (role, main_goal, context from upgrade_paths)
       const embeddingInput = `${pathRecord.role} ${pathRecord.main_goal} ${pathRecord.context}`
       console.log(`🔎 Generating embedding from path record: "${pathRecord.role}"`)
-      
+
       const embeddingResponse = await openai.embeddings.create({
         model: "text-embedding-3-small",
         input: embeddingInput,
@@ -104,17 +104,24 @@ export async function generatePath(
         query_embedding: userVector,
         match_threshold: 0.1, // Keep this low to ensure matches
         match_count: 6,       // Get top 6
-        min_machine_score: 1,
-        min_human_score: 0,
         filter_type: "ai_tool",
         target_pillar: pathRecord.primary_pillar || null
       })
 
       if (toolError) {
         console.error("❌ DB Tool Error:", toolError)
-      } else if (tools) {
-        console.log(`✅ VERIFIED TOOLS:`, tools.map((t: any) => t.name))
+        console.error("   Error code:", toolError.code)
+        console.error("   Error message:", toolError.message)
+        if (toolError.code === "42883") {
+          console.error("   ⚠️ Function signature mismatch - check match_resources RPC parameters")
+        }
+        verifiedTools = []
+      } else if (tools && Array.isArray(tools)) {
+        console.log(`✅ VERIFIED TOOLS (${tools.length}):`, tools.map((t: any) => t.name || t.id))
         verifiedTools = tools
+      } else {
+        console.warn("⚠️ Tools returned but is not an array:", tools)
+        verifiedTools = []
       }
 
       // SEARCH COURSES (Strict Filter: human_course)
@@ -122,17 +129,24 @@ export async function generatePath(
         query_embedding: userVector,
         match_threshold: 0.1,
         match_count: 6,
-        min_machine_score: 0,
-        min_human_score: 1,
         filter_type: "human_course",
         target_pillar: pathRecord.primary_pillar || null
       })
 
       if (courseError) {
         console.error("❌ DB Course Error:", courseError)
-      } else if (courses) {
-        console.log(`✅ VERIFIED COURSES:`, courses.map((c: any) => c.name))
+        console.error("   Error code:", courseError.code)
+        console.error("   Error message:", courseError.message)
+        if (courseError.code === "42883") {
+          console.error("   ⚠️ Function signature mismatch - check match_resources RPC parameters")
+        }
+        verifiedCourses = []
+      } else if (courses && Array.isArray(courses)) {
+        console.log(`✅ VERIFIED COURSES (${courses.length}):`, courses.map((c: any) => c.name || c.id))
         verifiedCourses = courses
+      } else {
+        console.warn("⚠️ Courses returned but is not an array:", courses)
+        verifiedCourses = []
       }
 
     } catch (err) {
@@ -160,13 +174,26 @@ export async function generatePath(
     // =========================================================
     // 💾 INSERT INTO path_resources TABLE
     // =========================================================
+    // Define impact weights for HVQ calculation (must match path-resources.ts)
+    const weights: Record<string, number> = {
+      suggested: 0.5,
+      added_free: 1.0,
+      added_enrolled: 1.0,
+      added_paid: 1.5,
+      added_completed: 1.5,
+      wishlisted: 0.2,
+      removed: 0
+    }
+
     // Insert ai_tools into path_resources with status 'suggested'
     if (verifiedTools.length > 0) {
       const toolInserts = verifiedTools
         .map((tool: any) => ({
           path_id: pathId,
           resource_id: tool.id,
+          user_id: user.id, // Required for RLS
           status: "suggested",
+          impact_weight: weights["suggested"] || 0.5,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }))
@@ -194,7 +221,9 @@ export async function generatePath(
         .map((course: any) => ({
           path_id: pathId,
           resource_id: course.id,
+          user_id: user.id, // Required for RLS
           status: "suggested",
+          impact_weight: weights["suggested"] || 0.5,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }))
@@ -219,6 +248,7 @@ export async function generatePath(
     // =========================================================
     // 📊 INITIAL HVQ SCORE
     // =========================================================
+    console.log(`📊 Calculating initial HVQ score with ${verifiedTools.length} tools and ${verifiedCourses.length} courses...`)
     const initialScore = await calculatePathHVQScore(pathId)
 
     if (initialScore !== null) {
@@ -230,17 +260,21 @@ export async function generatePath(
       if (hvqUpdateError) {
         console.error("❌ Failed to set initial HVQ score:", hvqUpdateError)
       } else {
-        console.log("✅ Logged initial HVQ score for path", pathId, "→", initialScore)
+        console.log(`✅ Logged initial HVQ score for path ${pathId} → ${initialScore}`)
+        if (initialScore === 100) {
+          console.warn("⚠️ Initial score is 100 (default) - this may indicate missing resources or pillar data")
+        }
       }
     } else {
       console.error("❌ HVQ calculation returned null; skipping initial score update")
+      console.error("   This may indicate missing path data or resources")
     }
 
     // =========================================================
     // 🚀 SEND TO N8N
     // =========================================================
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK
-    
+
     if (!webhookUrl) {
       console.error("❌ CRITICAL ERROR: Webhook URL missing")
       return { success: false, error: "Configuration Error" }
@@ -269,13 +303,13 @@ export async function generatePath(
       console.error(`❌ n8n Error: ${response.status}`)
       return { success: false, error: "AI Agent refused connection" }
     }
-    
+
     console.log("✅ SUCCESS: Data sent to n8n!")
     revalidatePath("/")
     // Return only pathId - slug will be ready after n8n processes
     // Frontend will poll for the final slug
     return { success: true, pathId }
-    
+
   } catch (error) {
     console.error("❌ CRASH:", error)
     return { success: false, error: "An unexpected error occurred" }

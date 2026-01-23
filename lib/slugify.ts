@@ -36,3 +36,31 @@ export function generateUniqueSlug(baseSlug: string): string {
   return `${baseSlug}-${randomSuffix}`
 }
 
+/**
+ * Generates a unique copy slug by checking existing paths and incrementing the copy number
+ * Returns: {base-slug}-copy-1, {base-slug}-copy-2, etc.
+ */
+export function generateCopySlug(baseSlug: string, existingSlugs: string[]): string {
+  if (!baseSlug) return ""
+  
+  // Remove any existing -copy-N suffix from the base slug
+  const cleanBase = baseSlug.replace(/-copy-\d+$/, "")
+  
+  // Find the highest copy number
+  let maxCopyNum = 0
+  const copyPattern = new RegExp(`^${cleanBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-copy-(\\d+)$`)
+  
+  existingSlugs.forEach(slug => {
+    const match = slug.match(copyPattern)
+    if (match) {
+      const num = parseInt(match[1], 10)
+      if (num > maxCopyNum) {
+        maxCopyNum = num
+      }
+    }
+  })
+  
+  // Return the next available copy number
+  return `${cleanBase}-copy-${maxCopyNum + 1}`
+}
+

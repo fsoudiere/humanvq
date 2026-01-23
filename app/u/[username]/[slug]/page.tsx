@@ -392,6 +392,60 @@ export default function UnifiedPathPage() {
       let pathResourceWeightsMap: Record<string, number> = {}
       let pathResourcesListBuilt: { ai_tools: ResourceItem[]; human_courses: ResourceItem[] } = { ai_tools: [], human_courses: [] }
 
+      // Parse n8n-generated descriptions from JSON blobs
+      // n8n stores descriptions in upgrade_paths.ai_tools and upgrade_paths.human_courses JSON columns
+      // Structure: [{ id, title, description, url, capabilities, difficulty_level }, ...]
+      let n8nTools: any[] = []
+      let n8nCourses: any[] = []
+      
+      try {
+        if (path.ai_tools) {
+          n8nTools = typeof path.ai_tools === 'string' 
+            ? JSON.parse(path.ai_tools) 
+            : path.ai_tools
+          if (!Array.isArray(n8nTools)) n8nTools = []
+        }
+      } catch (e) {
+        console.error("Failed to parse ai_tools JSON:", e)
+        n8nTools = []
+      }
+      
+      try {
+        if (path.human_courses) {
+          n8nCourses = typeof path.human_courses === 'string'
+            ? JSON.parse(path.human_courses)
+            : path.human_courses
+          if (!Array.isArray(n8nCourses)) n8nCourses = []
+        }
+      } catch (e) {
+        console.error("Failed to parse human_courses JSON:", e)
+        n8nCourses = []
+      }
+      
+      // Create maps for quick lookup: resource_id -> n8n data (description, capabilities)
+      const n8nToolData: Record<string, { description?: string; capabilities?: string[] }> = {}
+      n8nTools.forEach((tool: any) => {
+        // Match by id field in the JSON blob
+        if (tool && tool.id) {
+          n8nToolData[tool.id] = {
+            description: tool.description,
+            capabilities: tool.capabilities
+          }
+        }
+      })
+      
+      const n8nCourseData: Record<string, { description?: string }> = {}
+      n8nCourses.forEach((course: any) => {
+        // Match by id field in the JSON blob
+        if (course && course.id) {
+          n8nCourseData[course.id] = {
+            description: course.description
+          }
+        }
+      })
+      
+      console.log(`📝 [Path Page] Loaded ${Object.keys(n8nToolData).length} n8n tool entries and ${Object.keys(n8nCourseData).length} n8n course entries`)
+
       if (path.path_resources && Array.isArray(path.path_resources)) {
         const visiblePathResources = (path.path_resources || []).filter(
           (pr: any) => pr.status !== 'removed'
@@ -404,12 +458,25 @@ export default function UnifiedPathPage() {
           if (resource && resource.id) {
             pathResourcesMap[resource.id] = pr.status
             pathResourceWeightsMap[resource.id] = pr.impact_weight || 0
+            
+            // Use n8n-generated description and capabilities if available, otherwise fallback to resource data
+            // Match by resource.id (from path_resources) to tool.id (from ai_tools JSON blob)
+            const n8nData = resource.type === "ai_tool"
+              ? n8nToolData[resource.id]
+              : n8nCourseData[resource.id]
+            
+            const description = n8nData?.description || resource.description || ""
+            const capabilities = (resource.type === "ai_tool" && n8nData?.capabilities) 
+              ? n8nData.capabilities 
+              : resource.capabilities
+            
             const resourceItem: ResourceItem = {
               id: resource.id,
               title: resource.name,
-              description: resource.description || "",
+              description: description,
               url: resource.url,
               logodev: resource.logodev,
+              capabilities: capabilities,
               hvq_score_machine: resource.hvq_score_machine,
               hvq_score_human: resource.hvq_score_human,
               hvq_primary_pillar: resource.hvq_primary_pillar,
@@ -613,6 +680,54 @@ export default function UnifiedPathPage() {
           let pollPathResourceWeightsMap: Record<string, number> = {}
           let pollPathResourcesListBuilt: { ai_tools: ResourceItem[]; human_courses: ResourceItem[] } = { ai_tools: [], human_courses: [] }
 
+          // Parse n8n-generated descriptions from JSON blobs
+          let pollN8nTools: any[] = []
+          let pollN8nCourses: any[] = []
+          
+          try {
+            if (upgradePath.ai_tools) {
+              pollN8nTools = typeof upgradePath.ai_tools === 'string' 
+                ? JSON.parse(upgradePath.ai_tools) 
+                : upgradePath.ai_tools
+              if (!Array.isArray(pollN8nTools)) pollN8nTools = []
+            }
+          } catch (e) {
+            console.error("Failed to parse ai_tools JSON in poll:", e)
+            pollN8nTools = []
+          }
+          
+          try {
+            if (upgradePath.human_courses) {
+              pollN8nCourses = typeof upgradePath.human_courses === 'string'
+                ? JSON.parse(upgradePath.human_courses)
+                : upgradePath.human_courses
+              if (!Array.isArray(pollN8nCourses)) pollN8nCourses = []
+            }
+          } catch (e) {
+            console.error("Failed to parse human_courses JSON in poll:", e)
+            pollN8nCourses = []
+          }
+          
+          // Create maps for quick lookup: resource_id -> n8n data (description, capabilities)
+          const pollN8nToolData: Record<string, { description?: string; capabilities?: string[] }> = {}
+          pollN8nTools.forEach((tool: any) => {
+            if (tool && tool.id) {
+              pollN8nToolData[tool.id] = {
+                description: tool.description,
+                capabilities: tool.capabilities
+              }
+            }
+          })
+          
+          const pollN8nCourseData: Record<string, { description?: string }> = {}
+          pollN8nCourses.forEach((course: any) => {
+            if (course && course.id) {
+              pollN8nCourseData[course.id] = {
+                description: course.description
+              }
+            }
+          })
+
           // Process path_resources first so we have status/weights for calculateHVQScore
           if (upgradePath.path_resources && Array.isArray(upgradePath.path_resources)) {
             const visiblePathResources = (upgradePath.path_resources || []).filter(
@@ -626,12 +741,24 @@ export default function UnifiedPathPage() {
               if (resource && resource.id) {
                 pollPathResourcesMap[resource.id] = pr.status
                 pollPathResourceWeightsMap[resource.id] = pr.impact_weight || 0
+                
+                // Use n8n-generated description and capabilities if available, otherwise fallback to resource data
+                const pollN8nData = resource.type === "ai_tool"
+                  ? pollN8nToolData[resource.id]
+                  : pollN8nCourseData[resource.id]
+                
+                const description = pollN8nData?.description || resource.description || ""
+                const capabilities = (resource.type === "ai_tool" && pollN8nData?.capabilities) 
+                  ? pollN8nData.capabilities 
+                  : resource.capabilities
+                
                 const resourceItem: ResourceItem = {
                   id: resource.id,
                   title: resource.name,
-                  description: resource.description || "",
+                  description: description,
                   url: resource.url,
                   logodev: resource.logodev,
+                  capabilities: capabilities,
                   hvq_score_machine: resource.hvq_score_machine,
                   hvq_score_human: resource.hvq_score_human,
                   hvq_primary_pillar: resource.hvq_primary_pillar,
@@ -1412,7 +1539,7 @@ export default function UnifiedPathPage() {
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <p className="mb-2 text-sm md:text-xs text-zinc-500">
+                        <p className="mb-2 text-sm text-zinc-500">
                           {tool.description}
                         </p>
                         {tool.capabilities && tool.capabilities.length > 0 && (
@@ -1571,7 +1698,7 @@ export default function UnifiedPathPage() {
                       </div>
                     </CardHeader>
                     <CardContent>
-                      <p className="mb-3 text-sm md:text-xs text-zinc-500">
+                      <p className="mb-3 text-sm text-zinc-500">
                         {course.description}
                       </p>
                       {isOwner && courseId && (

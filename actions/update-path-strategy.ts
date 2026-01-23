@@ -76,8 +76,6 @@ export async function updatePathStrategy(
         query_embedding: userVector,
         match_threshold: 0.1,
         match_count: 6,
-        min_machine_score: 1,
-        min_human_score: 0,
         filter_type: "ai_tool",
         target_pillar: primaryPillar
       })
@@ -93,8 +91,6 @@ export async function updatePathStrategy(
         query_embedding: userVector,
         match_threshold: 0.1,
         match_count: 6,
-        min_machine_score: 0,
-        min_human_score: 1,
         filter_type: "human_course",
         target_pillar: primaryPillar
       })
