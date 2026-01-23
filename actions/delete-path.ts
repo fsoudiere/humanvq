@@ -20,7 +20,6 @@ export async function deletePath(pathId: string) {
     .eq("user_id", user.id) // Ensure user can only delete their own paths
 
   if (deleteError) {
-    console.error("Failed to delete path:", deleteError)
     return { success: false, error: "Failed to delete path" }
   }
 

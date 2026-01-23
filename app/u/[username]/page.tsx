@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import TierSection from "@/components/tier-section"
 import CourseGroup from "@/components/course-group"
 import { PathCard } from "@/components/path-card"
+import { InfoTooltip } from "@/components/info-tooltip"
 
 interface PageProps {
   params: Promise<{ username: string }>
@@ -341,8 +342,7 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
   })
 
   // Calculate metrics for dashboard
-  // 1. Count completed automated tasks across all paths (Time Saved calculation)
-  // Each completed task in delegate_to_machine represents automated work (estimate 10 hours per task)
+  // 1. Count completed automated tasks across all paths (for dashboard metric)
   let totalCompletedTasks = 0
   paths.forEach((path: any) => {
     if (path.efficiency_audit) {
@@ -359,7 +359,6 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
       }
     }
   })
-  const timeSavedHours = totalCompletedTasks * 10 // 10 hours per automated task
 
   // 2. Skills Gained = completed courses
   const skillsGained = completedCourses.length
@@ -425,11 +424,14 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
         </div>
 
       {/* Metrics Row - 4 columns with sparklines */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         {/* HVQ Overall Score */}
         <Card className="p-3 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm md:text-xs text-blue-600 dark:text-blue-400">HVQ Overall Score</div>
+            <div className="flex items-center gap-1.5">
+              <div className="text-sm md:text-xs text-blue-600 dark:text-blue-400">HVQ Overall Score</div>
+              <InfoTooltip content="Average Human Value across all roles; aim for 300+ to stay ahead of AI automation." />
+            </div>
             <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
               <LayoutDashboard className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </div>
@@ -461,7 +463,10 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
         {/* Active Paths */}
         <Card className="p-3">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Active Paths</div>
+            <div className="flex items-center gap-1.5">
+              <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Active Paths</div>
+              <InfoTooltip content="Total departments or roles you are currently managing and optimizing." />
+            </div>
             <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
               <Target className="h-4 w-4 text-purple-600 dark:text-purple-400" />
             </div>
@@ -490,20 +495,23 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
           </div>
         </Card>
 
-        {/* Time Saved */}
+        {/* Automated Tasks */}
         <Card className="p-3">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Time Saved</div>
+            <div className="flex items-center gap-1.5">
+              <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Automated Tasks</div>
+              <InfoTooltip content="Total recurring items offloaded to AI agents to buy back your time." />
+            </div>
             <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
               <Bot className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             </div>
           </div>
           <div className="flex items-center justify-between">
-            <div className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-50">{timeSavedHours}h</div>
+            <div className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-50">{totalCompletedTasks}</div>
             <div className="w-20 h-8">
               <svg width="100%" height="32" className="text-emerald-500">
                 {Array.from({ length: 7 }).map((_, i) => {
-                  const barHeight = Math.random() * 16 + 6 + Math.min(timeSavedHours / 8, 8)
+                  const barHeight = Math.random() * 16 + 6 + Math.min(totalCompletedTasks * 2, 8)
                   const x = (i * 11) + 2
                   return (
                     <rect
@@ -525,7 +533,10 @@ export default async function UnifiedUsernamePage({ params }: PageProps) {
         {/* Skills Gained */}
         <Card className="p-3">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Skills Gained</div>
+            <div className="flex items-center gap-1.5">
+              <div className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Skills Gained</div>
+              <InfoTooltip content="Unique human moats built through completed high-value courses." />
+            </div>
             <div className="w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
               <GraduationCap className="h-4 w-4 text-orange-600 dark:text-orange-400" />
             </div>

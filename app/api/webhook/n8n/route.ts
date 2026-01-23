@@ -42,7 +42,6 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (pathError || !path) {
-      console.error("❌ Path not found:", pathError)
       return NextResponse.json(
         { error: "Path not found" },
         { status: 404 }
@@ -102,13 +101,7 @@ export async function POST(request: NextRequest) {
         .eq("id", path_id)
 
       if (updateError) {
-        console.error("❌ Failed to update upgrade_paths:", updateError)
-      } else {
-        if (path_title) console.log(`✅ Updated path_title "${path_title}" and slug to "${pathUpdate.slug}"`)
-        if (efficiency_audit != null) console.log("✅ Updated efficiency_audit")
-        if (immediate_steps != null) console.log("✅ Updated immediate_steps")
-        if (pathUpdate.primary_pillar) console.log("✅ Updated primary_pillar from hvq_analysis")
-        if (hasPillars) console.log("✅ Updated pillar_* from hvq_analysis.pillars or human_pillars")
+        // Continue - other updates may still succeed
       }
     }
 
@@ -152,9 +145,7 @@ export async function POST(request: NextRequest) {
           })
 
         if (toolsError) {
-          console.error("❌ Failed to insert ai_tools into path_resources:", toolsError)
-        } else {
-          console.log(`✅ Inserted ${toolInserts.length} tools into path_resources for path ${path_id}`)
+          // Continue - tools may already exist
         }
       }
     }
@@ -181,9 +172,7 @@ export async function POST(request: NextRequest) {
           })
 
         if (coursesError) {
-          console.error("❌ Failed to insert human_courses into path_resources:", coursesError)
-        } else {
-          console.log(`✅ Inserted ${courseInserts.length} courses into path_resources for path ${path_id}`)
+          // Continue - courses may already exist
         }
       }
     }
@@ -197,7 +186,6 @@ export async function POST(request: NextRequest) {
     // This happens after efficiency_audit, pillars, and primary_pillar are updated above
     if (hasPillars || efficiency_audit != null || hvq_analysis?.primary_pillar != null) {
       try {
-        console.log("📊 Recalculating HVQ score with updated pillar data...")
         const updatedScore = await calculatePathHVQScore(path_id)
 
         if (updatedScore !== null) {
@@ -219,22 +207,12 @@ export async function POST(request: NextRequest) {
             })
             .eq("id", path_id)
 
-          if (hvqUpdateError) {
-            console.error("❌ Failed to update HVQ score after pillar update:", hvqUpdateError)
-          } else {
-            console.log(`✅ Recalculated and updated HVQ score: ${currentScore ?? 'null'} → ${updatedScore}`)
-            
+          if (!hvqUpdateError && profile?.username) {
             // Revalidate dashboard to show updated score immediately
-            // Dashboard is at /u/[username] route
-            if (profile?.username) {
-              revalidatePath(`/u/${profile.username}`)
-            }
+            revalidatePath(`/u/${profile.username}`)
           }
-        } else {
-          console.error("❌ HVQ calculation returned null after pillar update")
         }
       } catch (scoreError) {
-        console.error("❌ Failed to recalculate/save HVQ score in webhook:", scoreError)
         // Continue - path data was saved successfully
       }
     }

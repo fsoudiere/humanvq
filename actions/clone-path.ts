@@ -11,15 +11,12 @@ export interface ClonePathResult {
 }
 
 export async function clonePath(pathId: string): Promise<ClonePathResult> {
-  console.log("🔄 STARTING CLONE PATH...")
-  
   try {
     const supabase = await createClient()
 
     // 1. Get authenticated user
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError || !user) {
-      console.error("❌ User Auth Failed")
       return { success: false, error: "User not authenticated" }
     }
 
@@ -45,11 +42,8 @@ export async function clonePath(pathId: string): Promise<ClonePathResult> {
       .single()
 
     if (fetchError || !originalPath) {
-      console.error("❌ Path not found or access denied:", fetchError)
       return { success: false, error: "Path not found or access denied" }
     }
-
-    console.log(`✅ Fetched original path: "${originalPath.path_title || 'Untitled'}"`)
 
     // 3. Generate unique copy title and slug (for n8n to use)
     const originalTitle = originalPath.path_title || "Untitled Path"
@@ -97,9 +91,6 @@ export async function clonePath(pathId: string): Promise<ClonePathResult> {
     
     const existingSlugs = (existingPaths || []).map((p: any) => p.slug).filter(Boolean) as string[]
     const newSlug = generateCopySlug(baseSlug, existingSlugs)
-    
-    console.log(`📝 Generated copy title: "${newTitle}"`)
-    console.log(`📝 Generated copy slug: "${newSlug}"`)
 
     // 4. Create minimal path record (like generate-path does) - n8n will populate the rest
     // Set slug to null initially - n8n will set it when ready
@@ -121,19 +112,16 @@ export async function clonePath(pathId: string): Promise<ClonePathResult> {
       .single()
 
     if (pathCreateError || !newPath) {
-      console.error("❌ Failed to create cloned path record:", pathCreateError)
       return { success: false, error: "Failed to create cloned path" }
     }
 
     const newPathId = newPath.id
-    console.log(`✅ Created minimal cloned path record with ID: ${newPathId}`)
 
     // 5. Send to n8n with NEW path_id and clone flag
     // n8n will create the path with proper title, slug, and copy all resources
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK
     
     if (!webhookUrl) {
-      console.error("❌ CRITICAL ERROR: Webhook URL missing")
       return { success: false, error: "Configuration Error" }
     }
 
@@ -162,12 +150,6 @@ export async function clonePath(pathId: string): Promise<ClonePathResult> {
     const courses = (originalResources || [])
       .filter((pr: any) => pr.resources?.type === "human_course")
       .map((pr: any) => pr.resources)
-
-    console.log(`📦 Sending clone request to n8n...`)
-    console.log(`   - New path_id: ${newPathId}`)
-    console.log(`   - Original path_id: ${pathId}`)
-    console.log(`   - Tools: ${tools.length}`)
-    console.log(`   - Courses: ${courses.length}`)
 
     const response = await fetch(webhookUrl, {
       method: "POST",
@@ -204,18 +186,13 @@ export async function clonePath(pathId: string): Promise<ClonePathResult> {
     })
 
     if (!response.ok) {
-      console.error(`❌ n8n Error for clone: ${response.status}`)
       return { success: false, error: "AI Agent refused connection" }
     }
-    
-    console.log("✅ SUCCESS: Clone request sent to n8n!")
-    console.log("   Frontend will poll for path to be ready (slug will be set by n8n)")
     
     revalidatePath("/")
     // Return pathId - frontend will poll for slug like create-path flow
     return { success: true, pathId: newPathId }
   } catch (error) {
-    console.error("❌ Error cloning path:", error)
     return { success: false, error: "An unexpected error occurred" }
   }
 }

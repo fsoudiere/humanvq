@@ -50,6 +50,8 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
 
   // 1. Search Logic - Use semantic search via embeddings
   useEffect(() => {
+    const abortController = new AbortController()
+    
     const searchTools = async () => {
       if (query.length < 2) {
         setResults([])
@@ -64,6 +66,11 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
         // Call server action to search using embeddings
         const result = await searchResources(query, filterType)
         
+        // Check if request was aborted
+        if (abortController.signal.aborted) {
+          return
+        }
+        
         if (result.success && result.data) {
           setResults(result.data)
         } else {
@@ -71,15 +78,25 @@ export default function AddToolSearch({ pathId, userId, onAdd }: AddToolSearchPr
           setResults([])
         }
       } catch (error) {
+        // Ignore abort errors
+        if (error instanceof Error && error.name === 'AbortError') {
+          return
+        }
         console.error("Search error:", error)
         setResults([])
       } finally {
-        setLoading(false)
+        // Only update loading state if not aborted
+        if (!abortController.signal.aborted) {
+          setLoading(false)
+        }
       }
     }
 
-    const timer = setTimeout(searchTools, 300)
-    return () => clearTimeout(timer)
+    const timer = setTimeout(searchTools, 500)
+    return () => {
+      clearTimeout(timer)
+      abortController.abort()
+    }
   }, [query, activeTab])
 
   // 2. Add Logic - Use server action to add to path_resources

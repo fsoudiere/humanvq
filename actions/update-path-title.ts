@@ -29,7 +29,6 @@ export async function updatePathTitle(pathId: string, title: string) {
     .eq("user_id", user.id) // Ensure user can only update their own paths
 
   if (updateError) {
-    console.error("Failed to update path title:", updateError)
     return { success: false, error: "Failed to update path title" }
   }
 

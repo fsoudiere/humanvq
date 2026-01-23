@@ -32,7 +32,6 @@ export async function togglePathPublicStatus(
     .single()
 
   if (pathError || !path) {
-    console.error("Failed to fetch path:", pathError)
     return { success: false, error: "Path not found" }
   }
 
@@ -51,7 +50,6 @@ export async function togglePathPublicStatus(
     .eq("user_id", user.id) // Double-check ownership
 
   if (updateError) {
-    console.error("Failed to update path public status:", updateError)
     return { success: false, error: "Failed to update path public status" }
   }
 

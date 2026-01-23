@@ -54,7 +54,7 @@ export async function searchResources(
         semanticResults = data
       }
     } catch (semanticError) {
-      console.warn("Semantic search error (continuing with text search):", semanticError)
+      // Continue with text search fallback
     }
 
     // 2. Also do text-based search for partial name matches (handles "retell" -> "Retell AI")
@@ -77,7 +77,7 @@ export async function searchResources(
         textResults = textData
       }
     } catch (textError) {
-      console.warn("Text search error:", textError)
+      // Continue without text results
     }
 
     // 3. Combine results, prioritizing semantic matches, then deduplicate by id
@@ -101,7 +101,6 @@ export async function searchResources(
 
     return { success: true, data: combinedResults }
   } catch (error: any) {
-    console.error("Search resources error:", error)
     return { success: false, error: error.message || "Failed to search resources" }
   }
 }

@@ -25,8 +25,6 @@ export interface GeneratePathResult {
 export async function generatePath(
   data: GeneratePathInput
 ): Promise<GeneratePathResult> {
-  console.log("🚀 STARTING GENERATE PATH...")
-
   try {
     const supabase = await createClient()
 
@@ -39,7 +37,6 @@ export async function generatePath(
     // 2. Get authenticated user for path creation
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError || !user) {
-      console.error("❌ User Auth Failed")
       return { success: false, error: "User not authenticated" }
     }
 
@@ -63,12 +60,10 @@ export async function generatePath(
       .single()
 
     if (pathCreateError || !newPath) {
-      console.error("❌ Failed to create path record:", pathCreateError)
       return { success: false, error: "Failed to create path" }
     }
 
     const pathId = newPath.id
-    console.log(`✅ Created path record with ID: ${pathId}`)
 
     // Fetch the path record to use its data for matching
     const { data: pathRecord, error: pathFetchError } = await supabase
@@ -78,7 +73,6 @@ export async function generatePath(
       .single()
 
     if (pathFetchError || !pathRecord) {
-      console.error("❌ Failed to fetch path record:", pathFetchError)
       return { success: false, error: "Failed to fetch path record" }
     }
 
@@ -91,7 +85,6 @@ export async function generatePath(
     try {
       // Use the path record's data for embedding (role, main_goal, context from upgrade_paths)
       const embeddingInput = `${pathRecord.role} ${pathRecord.main_goal} ${pathRecord.context}`
-      console.log(`🔎 Generating embedding from path record: "${pathRecord.role}"`)
 
       const embeddingResponse = await openai.embeddings.create({
         model: "text-embedding-3-small",
@@ -109,18 +102,10 @@ export async function generatePath(
       })
 
       if (toolError) {
-        console.error("❌ DB Tool Error:", toolError)
-        console.error("   Error code:", toolError.code)
-        console.error("   Error message:", toolError.message)
-        if (toolError.code === "42883") {
-          console.error("   ⚠️ Function signature mismatch - check match_resources RPC parameters")
-        }
         verifiedTools = []
       } else if (tools && Array.isArray(tools)) {
-        console.log(`✅ VERIFIED TOOLS (${tools.length}):`, tools.map((t: any) => t.name || t.id))
         verifiedTools = tools
       } else {
-        console.warn("⚠️ Tools returned but is not an array:", tools)
         verifiedTools = []
       }
 
@@ -134,23 +119,15 @@ export async function generatePath(
       })
 
       if (courseError) {
-        console.error("❌ DB Course Error:", courseError)
-        console.error("   Error code:", courseError.code)
-        console.error("   Error message:", courseError.message)
-        if (courseError.code === "42883") {
-          console.error("   ⚠️ Function signature mismatch - check match_resources RPC parameters")
-        }
         verifiedCourses = []
       } else if (courses && Array.isArray(courses)) {
-        console.log(`✅ VERIFIED COURSES (${courses.length}):`, courses.map((c: any) => c.name || c.id))
         verifiedCourses = courses
       } else {
-        console.warn("⚠️ Courses returned but is not an array:", courses)
         verifiedCourses = []
       }
 
     } catch (err) {
-      console.error("⚠️ Matching Logic Crash:", err)
+      // Silently continue - matches will be empty arrays
     }
 
     // =========================================================
@@ -165,10 +142,7 @@ export async function generatePath(
       .eq("id", pathId)
 
     if (updateError) {
-      console.error("❌ Failed to save matches to path:", updateError)
       // Continue execution - matches will still be sent to n8n
-    } else {
-      console.log(`✅ Saved ${verifiedTools.length} tools and ${verifiedCourses.length} courses to path ${pathId}`)
     }
 
     // =========================================================
@@ -208,9 +182,7 @@ export async function generatePath(
           })
 
         if (toolsError) {
-          console.error("❌ Failed to insert ai_tools into path_resources:", toolsError)
-        } else {
-          console.log(`✅ Inserted ${toolInserts.length} tools into path_resources`)
+          // Continue - tools may already exist
         }
       }
     }
@@ -238,9 +210,7 @@ export async function generatePath(
           })
 
         if (coursesError) {
-          console.error("❌ Failed to insert human_courses into path_resources:", coursesError)
-        } else {
-          console.log(`✅ Inserted ${courseInserts.length} courses into path_resources`)
+          // Continue - courses may already exist
         }
       }
     }
@@ -248,26 +218,13 @@ export async function generatePath(
     // =========================================================
     // 📊 INITIAL HVQ SCORE
     // =========================================================
-    console.log(`📊 Calculating initial HVQ score with ${verifiedTools.length} tools and ${verifiedCourses.length} courses...`)
     const initialScore = await calculatePathHVQScore(pathId)
 
     if (initialScore !== null) {
-      const { error: hvqUpdateError } = await supabase
+      await supabase
         .from("upgrade_paths")
         .update({ current_hvq_score: initialScore })
         .eq("id", pathId)
-
-      if (hvqUpdateError) {
-        console.error("❌ Failed to set initial HVQ score:", hvqUpdateError)
-      } else {
-        console.log(`✅ Logged initial HVQ score for path ${pathId} → ${initialScore}`)
-        if (initialScore === 100) {
-          console.warn("⚠️ Initial score is 100 (default) - this may indicate missing resources or pillar data")
-        }
-      }
-    } else {
-      console.error("❌ HVQ calculation returned null; skipping initial score update")
-      console.error("   This may indicate missing path data or resources")
     }
 
     // =========================================================
@@ -276,14 +233,8 @@ export async function generatePath(
     const webhookUrl = process.env.NEXT_PUBLIC_N8N_WEBHOOK
 
     if (!webhookUrl) {
-      console.error("❌ CRITICAL ERROR: Webhook URL missing")
       return { success: false, error: "Configuration Error" }
     }
-
-    // LOG WHAT WE ARE SENDING
-    console.log(`📦 Sending Payload to n8n...`)
-    console.log(`   - Tools: ${verifiedTools.length}`)
-    console.log(`   - Courses: ${verifiedCourses.length}`)
 
     const response = await fetch(webhookUrl, {
       method: "POST",
@@ -300,18 +251,15 @@ export async function generatePath(
     })
 
     if (!response.ok) {
-      console.error(`❌ n8n Error: ${response.status}`)
       return { success: false, error: "AI Agent refused connection" }
     }
 
-    console.log("✅ SUCCESS: Data sent to n8n!")
     revalidatePath("/")
     // Return only pathId - slug will be ready after n8n processes
     // Frontend will poll for the final slug
     return { success: true, pathId }
 
   } catch (error) {
-    console.error("❌ CRASH:", error)
     return { success: false, error: "An unexpected error occurred" }
   }
 }

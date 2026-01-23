@@ -33,11 +33,9 @@ export async function ensureProfile(
       const { data: { session }, error: sessionError } = await supabase.auth.getSession()
       if (sessionError || !session) {
         if (attempt < maxRetries) {
-          console.log(`⏳ Session check failed (attempt ${attempt}/${maxRetries}), retrying...`)
           await new Promise(resolve => setTimeout(resolve, retryDelayMs * attempt))
           continue
         }
-        console.error("❌ Session Check Failed after retries:", sessionError)
         return { success: false, error: "Session not active. Please sign in again." }
       }
 
@@ -45,11 +43,9 @@ export async function ensureProfile(
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError || !user) {
         if (attempt < maxRetries) {
-          console.log(`⏳ User auth failed (attempt ${attempt}/${maxRetries}), retrying...`)
           await new Promise(resolve => setTimeout(resolve, retryDelayMs * attempt))
           continue
         }
-        console.error("❌ User Auth Failed after retries:", userError)
         return { success: false, error: "User not authenticated" }
       }
 
@@ -61,7 +57,6 @@ export async function ensureProfile(
         .maybeSingle()
 
       if (fetchError) {
-        console.error("❌ Failed to fetch profile:", fetchError)
         if (attempt < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, retryDelayMs * attempt))
           continue
@@ -71,7 +66,6 @@ export async function ensureProfile(
 
       // Step 4: If profile exists and has username, return it
       if (existingProfile && existingProfile.username) {
-        console.log(`✅ Profile exists with username: ${existingProfile.username}`)
         return {
           success: true,
           profile: {
@@ -121,17 +115,14 @@ export async function ensureProfile(
         }
 
         if (attempt < maxRetries) {
-          console.log(`⏳ Profile upsert failed (attempt ${attempt}/${maxRetries}), retrying...`, upsertError)
           await new Promise(resolve => setTimeout(resolve, retryDelayMs * attempt))
           continue
         }
 
-        console.error("❌ Failed to ensure profile with username:", upsertError)
         return { success: false, error: "Failed to create profile. Please try again." }
       }
 
       if (upsertedProfile) {
-        console.log(`✅ Created/updated profile with username: ${upsertedProfile.username}`)
         return {
           success: true,
           profile: {
@@ -150,7 +141,6 @@ export async function ensureProfile(
       return { success: false, error: "Failed to create profile" }
 
     } catch (error) {
-      console.error(`❌ Error in ensureProfile (attempt ${attempt}/${maxRetries}):`, error)
       if (attempt < maxRetries) {
         await new Promise(resolve => setTimeout(resolve, retryDelayMs * attempt))
         continue

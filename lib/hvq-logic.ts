@@ -96,21 +96,24 @@ interface ResourceItem {
 }
 
 // --- Constants for new HVQ formula ---
+// Scoring is balanced so 500 = Professional, 1000 = near-total automation + master skills
 
 const HUMAN_FLOOR_BASE = 50
 const HVQ_CAP = 1000
 const HVQ_MIN = 10
-/** Base delegation bonus per completed task when vulnerability ≤ threshold. */
-export const DELEGATION_BONUS_PER_TASK = 0.05
-/** Higher bonus per task when vulnerability > threshold (high replacement risk → delegation has more survival value). */
-export const DELEGATION_BONUS_PER_TASK_HIGH_RISK = 0.08
-/** Vulnerability above this uses DELEGATION_BONUS_PER_TASK_HIGH_RISK. */
-export const VULNERABILITY_HIGH_RISK_THRESHOLD = 0.7
+/** Scaling factor to make higher scores harder to achieve (applied after base calculation) */
+const SCORE_SCALING_FACTOR = 0.7
+/** Risk reduction per completed delegate task (8% reduction per task, multiplicative). Softer than before. */
+export const DELEGATION_RISK_REDUCTION = 0.92
 const MIN_DENOMINATOR = 0.01
-const AI_LEVERAGE_PAID = 1.5
-const AI_LEVERAGE_FREE = 1.1
-/** 2× when a completed human course's hvq_primary_pillar matches the user's primaryPillar. */
-const HUMAN_MOAT_MULTIPLIER = 2
+/** Human Mastery Bonus per fortified "Keep for Human" task. */
+export const HUMAN_MASTERY_BONUS_PER_TASK = 10
+/** Flat bonus when a completed human course's hvq_primary_pillar matches the user's primaryPillar. */
+const HUMAN_MOAT_MULTIPLIER = 1.3
+/** Flat bonus amount added when pillar matches (instead of multiplier). */
+const HUMAN_MOAT_BONUS = 15
+/** Execution bonus per completed step. Rewards implementation. */
+export const EXECUTION_BONUS_PER_STEP = 10
 
 /** Parse lastUpdatedAt to UTC ms. Avoids local-timezone parsing for ISO strings without Z/offset. */
 function toUtcTimestamp(val: Date | string | number | null | undefined): number {
@@ -128,6 +131,7 @@ export function calculateHVQScore(
   data: {
     efficiency_audit?: {
       delegate_to_machine?: Array<{ is_completed: boolean }>
+      keep_for_human?: Array<{ task: string; is_completed?: boolean; is_fortified?: boolean }>
     }
     immediate_steps?: Array<{ is_completed: boolean }>
   },
@@ -143,62 +147,75 @@ export function calculateHVQScore(
   /** Path's last update. Score_raw × (1 − HVQ_DECAY_RATE)^months. Omit for no decay. */
   lastUpdatedAt?: Date | string | number | null
 ): number {
-  // [HVQ Debug] Step 1: Incoming inputs
-  console.log("[HVQ Debug] Step 1: Vulnerability is", vulnerability, "| primaryPillar is", primaryPillar ?? "(none)")
-
-  // Human Floor: 50 + Σ (hvq_score_human × impact_weight × moat) for added_completed human courses
-  // moat = 2 when hvq_primary_pillar matches primaryPillar, else 1
+  // Human Floor: 50 + Σ ((hvq_score_human × impact_weight) + moat_bonus) for added_completed human courses
+  // moat_bonus = +15 when hvq_primary_pillar matches primaryPillar (flat bonus, not multiplier)
   let humanFloor = HUMAN_FLOOR_BASE
-  console.log("[HVQ Debug] Step 2: Human Floor base =", HUMAN_FLOOR_BASE)
+  
   for (const c of resources.human_courses || []) {
     if (c.id && pathResourceStatus[c.id] === "added_completed") {
       const w = resourceWeights[c.id] ?? 1
-      const moat = primaryPillar && c.hvq_primary_pillar && c.hvq_primary_pillar === primaryPillar ? HUMAN_MOAT_MULTIPLIER : 1
-      const added = (c.hvq_score_human ?? 0) * w * moat
+      const courseScore = c.hvq_score_human ?? 0
+      const hasMoatMatch = primaryPillar && c.hvq_primary_pillar && c.hvq_primary_pillar === primaryPillar
+      const baseContribution = courseScore * w
+      const moatBonus = hasMoatMatch ? HUMAN_MOAT_BONUS : 0
+      const added = baseContribution + moatBonus
       humanFloor += added
-      console.log("[HVQ Debug] Step 2: + course", c.id, "| hvq_score_human =", c.hvq_score_human, "× weight =", w, "× moat =", moat, "→ +", added, "| humanFloor now =", humanFloor)
     }
   }
-  console.log("[HVQ Debug] Step 2: Human Floor final =", humanFloor)
+  
+  // Human Mastery Bonus: +10 per fortified "Keep for Human" task (using is_fortified)
+  const fortifiedKeepForHuman = (data.efficiency_audit?.keep_for_human || []).filter(
+    (item) => item.is_fortified === true
+  ).length
+  const humanMasteryBonus = fortifiedKeepForHuman * HUMAN_MASTERY_BONUS_PER_TASK
+  humanFloor += humanMasteryBonus
 
-  // AI Leverage: added_paid → 1.5×, added_free → 1.1× (multiplicative)
+  // AI Leverage: Additive on Human Floor (humanFloor * (1 + 0.2 if paid + 0.05 if free))
   const hasPaid = (resources.ai_tools || []).some(
     (t) => t.id && pathResourceStatus[t.id] === "added_paid"
   )
   const hasFree = (resources.ai_tools || []).some(
     (t) => t.id && pathResourceStatus[t.id] === "added_free"
   )
-  const aiLeverage = (hasPaid ? AI_LEVERAGE_PAID : 1) * (hasFree ? AI_LEVERAGE_FREE : 1)
-  console.log("[HVQ Debug] Step 3: AI Leverage | hasPaid =", hasPaid, "| hasFree =", hasFree, "→ aiLeverage =", aiLeverage)
+  const aiLeverageMultiplier = 1 + (hasPaid ? 0.2 : 0) + (hasFree ? 0.05 : 0)
+  const humanFloorWithAILeverage = humanFloor * aiLeverageMultiplier
 
-  // DelegationBonus: per completed delegate task; higher when vulnerability > 0.7 (delegation has more survival value at high replacement risk)
+  // Denominator: vulnerability * Math.pow(0.92, completedDelegateTasks)
+  // Each completed task reduces risk by 8% (softer multiplicative decay)
   const completedDelegate = (data.efficiency_audit?.delegate_to_machine || []).filter(
     (t) => t.is_completed
   ).length
-  const bonusPerTask = vulnerability > VULNERABILITY_HIGH_RISK_THRESHOLD
-    ? DELEGATION_BONUS_PER_TASK_HIGH_RISK
-    : DELEGATION_BONUS_PER_TASK
-  const delegationBonus = Math.min(
-    completedDelegate * bonusPerTask,
-    Math.max(0, vulnerability - MIN_DENOMINATOR)
-  )
-  const denominator = Math.max(MIN_DENOMINATOR, vulnerability - delegationBonus)
-  console.log("[HVQ Debug] Step 4: bonusPerTask =", bonusPerTask, "| completedDelegate =", completedDelegate, "| delegationBonus =", delegationBonus, "| denominator =", denominator)
+  const riskReduction = Math.pow(DELEGATION_RISK_REDUCTION, completedDelegate)
+  const denominator = vulnerability * riskReduction
 
-  const raw = (humanFloor * aiLeverage) / denominator
-  console.log("[HVQ Debug] Step 4: raw = (humanFloor", humanFloor, "× aiLeverage", aiLeverage, ") /", denominator, "=", raw)
+  const raw = humanFloorWithAILeverage / Math.max(0.01, denominator)
 
-  // Time decay: Score_final = Score_raw × (1 − HVQ_DECAY_RATE)^months (Replacement Risk as AI improves)
+  // Execution Bonus: +10 points per completed step (rewards implementation)
+  // Moved before scaling so bonus is included in scaling calculation
+  const completedSteps = (data.immediate_steps || []).filter((step) => step.is_completed).length
+  const executionBonus = completedSteps * EXECUTION_BONUS_PER_STEP
+  const rawWithBonus = raw + executionBonus
+
+  // Apply power function scaling for scores above 500 to prevent rapid saturation
+  // Makes reaching 1000 feel like 'Level 99' in a game
+  let scaledRaw = rawWithBonus
+  if (rawWithBonus > 500) {
+    // Power function dampener: 500 + (excess ^ 0.75)
+    // This creates stronger diminishing returns for scores above 500
+    const excess = rawWithBonus - 500
+    const dampenedExcess = Math.pow(excess, 0.75)
+    scaledRaw = 500 + dampenedExcess
+  }
+
+  // Time decay: Score_final = Score_scaled × (1 − HVQ_DECAY_RATE)^months (Replacement Risk as AI improves)
   // Use UTC timestamps only (Date.now() and getTime() are UTC) to avoid timezone-related score drops.
   // lastUpdatedAt should be ISO 8601 with Z or offset; if it's ISO datetime without timezone, we treat as UTC.
   const MS_PER_MONTH = (365.25 / 12) * 24 * 60 * 60 * 1000
   const then = toUtcTimestamp(lastUpdatedAt)
   const months = Number.isFinite(then) ? Math.max(0, (Date.now() - then) / MS_PER_MONTH) : 0
   const decay = Math.pow(1 - HVQ_DECAY_RATE, months)
-  const scoreDecayed = raw * decay
-  console.log("[HVQ Debug] Step 5: Decay | lastUpdatedAt =", lastUpdatedAt, "| months since =", months, "| decay = (1 -", HVQ_DECAY_RATE, ")^", months, "=", decay, "| scoreDecayed =", raw, "×", decay, "=", scoreDecayed)
+  const scoreDecayed = scaledRaw * decay
 
   const final = Math.max(HVQ_MIN, Math.min(HVQ_CAP, Math.round(scoreDecayed)))
-  console.log("[HVQ Debug] Step 6: Final HVQ = round(", scoreDecayed, ") capped [10, 1000] =", final)
   return final
 }

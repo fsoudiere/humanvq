@@ -27,7 +27,6 @@ export async function submitSuggestion(data: { name: string; url: string; type: 
   const N8N_WEBHOOK_URL2 = process.env.NEXT_PUBLIC_N8N_WEBHOOK2
 
   if (!N8N_WEBHOOK_URL2) {
-    console.warn("N8N_WEBHOOK_URL2 is not configured")
     return { success: true, message: "Logged, but automation not configured." }
   }
 
@@ -46,7 +45,6 @@ export async function submitSuggestion(data: { name: string; url: string; type: 
 
     return { success: true }
   } catch (err) {
-    console.error("Automation error:", err)
     // We still return success if the DB insert worked, even if n8n is down
     return { success: true, message: "Logged, but automation pending." }
   }

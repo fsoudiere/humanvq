@@ -27,7 +27,6 @@ export async function deleteAccount(): Promise<DeleteAccountResult> {
       .eq("user_id", userId)
 
     if (pathsError) {
-      console.error("Failed to delete paths:", pathsError)
       // Continue anyway - try to delete other data
     }
 
@@ -41,7 +40,6 @@ export async function deleteAccount(): Promise<DeleteAccountResult> {
       .eq("user_id", userId)
 
     if (profileError) {
-      console.error("Failed to delete profile:", profileError)
       // Continue anyway - try to delete auth user
     }
 
@@ -50,18 +48,13 @@ export async function deleteAccount(): Promise<DeleteAccountResult> {
     // The auth user can be deleted manually or via a database trigger if needed.
     
     // Sign out the user
-    const { error: signOutError } = await supabase.auth.signOut()
-    
-    if (signOutError) {
-      console.error("Failed to sign out:", signOutError)
-    }
+    await supabase.auth.signOut()
     
     // All user data has been deleted from database tables
     // Auth user account remains but has no associated data
     return { success: true }
     
   } catch (error) {
-    console.error("Error deleting account:", error)
     return { success: false, error: "An unexpected error occurred while deleting account" }
   }
 }

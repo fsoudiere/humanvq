@@ -90,7 +90,6 @@ export async function updateProfile(
     ) {
       return { success: false, error: "This username is already taken" }
     }
-    console.error("Failed to update profile:", updateError)
     return { success: false, error: "Failed to update profile" }
   }
 

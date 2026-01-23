@@ -61,7 +61,6 @@ export async function calculatePathHVQScore(pathId: string): Promise<number | nu
     .single()
 
   if (pathDataError || !pathData) {
-    console.error("Failed to fetch path data for HVQ calculation:", pathDataError)
     return null
   }
 
@@ -182,7 +181,6 @@ export async function addResourceToPath(
   
   if (existingPathResource) {
     // Update existing record
-    console.log("📝 Updating existing path_resource to 'wishlisted'")
     const { error: updateError } = await supabase
       .from("path_resources")
       .update({
@@ -195,7 +193,6 @@ export async function addResourceToPath(
     pathResourceError = updateError
   } else {
     // Insert new record
-    console.log("➕ Inserting new path_resource with status 'wishlisted'")
     const { error: insertError } = await supabase
       .from("path_resources")
       .insert({
@@ -211,19 +208,6 @@ export async function addResourceToPath(
   }
 
   if (pathResourceError) {
-    // Log detailed error information for debugging
-    console.error("❌ Failed to add/update tool in path_resources:", {
-      error: pathResourceError,
-      code: pathResourceError.code,
-      message: pathResourceError.message,
-      details: pathResourceError.details,
-      hint: pathResourceError.hint,
-      pathId,
-      resourceId,
-      userId: user.id,
-      existing: !!existingPathResource
-    })
-    
     // Return detailed error message for better debugging
     const errorMessage = pathResourceError.message || pathResourceError.details || pathResourceError.hint || "Unknown error"
     return { 
@@ -300,7 +284,6 @@ export async function removeResourceFromPath(
     })
 
   if (pathResourceError) {
-    console.error("Failed to remove tool from path:", pathResourceError)
     return { success: false, error: "Failed to remove tool from path" }
   }
 
@@ -429,7 +412,6 @@ export async function updateResourceStatus(
     })
 
   if (pathResourceError) {
-    console.error('DATABASE ERROR:', JSON.stringify(pathResourceError, null, 2))
     return { success: false, error: "Failed to update resource status" }
   }
 
@@ -461,7 +443,6 @@ export async function updateResourceStatus(
       .eq("id", pathId)
     
     if (scoreUpdateError) {
-      console.error("Failed to update HVQ score:", scoreUpdateError)
       // Continue anyway - path_resources update was successful
     }
   }
